@@ -171,7 +171,7 @@ def test_postgres_config(payload: PostgresConfigSchema):
 def get_jobs(db: Session = Depends(get_db)):
     jobs = db.query(ScraperJob).all()
     # Populate next run time dynamically if active in APScheduler
-    from .scheduler import scheduler
+    from scheduler import scheduler
     for job in jobs:
         job_id_str = f"job_{job.id}"
         sch_job = scheduler.get_job(job_id_str)
