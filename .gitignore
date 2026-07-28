@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+backend/cron_panel.db
+backend/cron_panel.db-journal
+
+# Node
+node_modules/
+dist/
+dist-ssr
+*.local
+
+# Scraping Profiles & Logs
+backend/scripts/shopee_profile_uc/
+backend/scripts/tokopedia_profile/
+shopee_profile_uc/
+tokopedia_profile/
+Shopee/
+Tokopedia/
+
+# Logs & temp files
+*.log
+results*.json
+temp_*.json
+
+# OS
+.DS_Store
