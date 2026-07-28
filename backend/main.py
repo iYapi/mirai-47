@@ -1,4 +1,5 @@
 import os
+import json
 import shutil
 from typing import Optional
 from datetime import datetime
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from database import engine, Base, get_db, SessionLocal
-from models import PostgresConfig, ScraperJob, JobLog
+from models import PostgresConfig, ScraperJob, JobLog, PendingSync
 from postgres_client import PostgresClient
 from scheduler import (
     start_scheduler,
@@ -419,3 +420,67 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
         "active_jobs": active_jobs,
         "total_products_scraped": total_scraped
     }
+
+# --- Pending Database Syncs API ---
+
+@app.get("/api/pending-syncs")
+def get_pending_syncs(db: Session = Depends(get_db)):
+    syncs = db.query(PendingSync).order_by(PendingSync.created_at.desc()).all()
+    # Exclude products_data from list to keep it lightweight
+    return [
+        {
+            "id": s.id,
+            "job_id": s.job_id,
+            "job_name": s.job_name,
+            "run_id": s.run_id,
+            "scraped_at": s.scraped_at,
+            "product_count": s.product_count,
+            "error_message": s.error_message,
+            "created_at": s.created_at
+        }
+        for s in syncs
+    ]
+
+@app.post("/api/pending-syncs/{id}/retry")
+def retry_pending_sync(id: int, db: Session = Depends(get_db)):
+    pending = db.query(PendingSync).filter(PendingSync.id == id).first()
+    if not pending:
+        raise HTTPException(status_code=404, detail="Pending sync record not found.")
+
+    pg_client = get_active_pg_client(db)
+    if not pg_client:
+        raise HTTPException(
+            status_code=400,
+            detail="PostgreSQL is not configured or not connected. Configure it first in settings."
+        )
+
+    try:
+        products = json.loads(pending.products_data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse locally stored JSON data: {e}")
+
+    try:
+        inserted = pg_client.insert_products(products)
+        # On success, delete the pending record
+        db.delete(pending)
+        db.commit()
+        return {"success": True, "inserted": inserted, "message": "Successfully synchronized with PostgreSQL."}
+    except Exception as e:
+        # Update error message with the latest attempt's exception
+        pending.error_message = str(e)
+        db.commit()
+        raise HTTPException(
+            status_code=500,
+            detail=f"PostgreSQL synchronization failed again: {e}"
+        )
+
+@app.delete("/api/pending-syncs/{id}")
+def delete_pending_sync(id: int, db: Session = Depends(get_db)):
+    pending = db.query(PendingSync).filter(PendingSync.id == id).first()
+    if not pending:
+        raise HTTPException(status_code=404, detail="Pending sync record not found.")
+
+    db.delete(pending)
+    db.commit()
+    return {"success": True, "message": "Pending sync record discarded."}
+

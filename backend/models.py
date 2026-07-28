@@ -42,3 +42,16 @@ class JobLog(Base):
     status = Column(String, nullable=False)  # running, failed, completed
     log_output = Column(Text, nullable=True)  # Captured stdout/stderr logs
     products_scraped = Column(Integer, default=0)
+
+class PendingSync(Base):
+    __tablename__ = "pending_syncs"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    job_id = Column(Integer, ForeignKey("scraper_jobs.id", ondelete="CASCADE"), nullable=False)
+    job_name = Column(String, nullable=False)
+    run_id = Column(String, nullable=False)
+    scraped_at = Column(DateTime, default=datetime.utcnow)
+    product_count = Column(Integer, default=0)
+    products_data = Column(Text, nullable=False)  # JSON-encoded array of products
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

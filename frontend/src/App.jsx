@@ -57,6 +57,10 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
+  // Pending Sync state
+  const [pendingSyncs, setPendingSyncs] = useState([]);
+  const [isRetryingSyncId, setIsRetryingSyncId] = useState(null);
+
   // Modals & Forms
   const [showAddJobModal, setShowAddJobModal] = useState(false);
   const [showEditJobModal, setShowEditJobModal] = useState(false);
@@ -90,6 +94,7 @@ export default function App() {
     fetchStats();
     fetchPostgresConfig();
     fetchJobs();
+    fetchPendingSyncs();
   }, []);
 
   // Polling for Job status, stats and logs
@@ -97,6 +102,7 @@ export default function App() {
     const statusInterval = setInterval(() => {
       fetchJobsStatusOnly();
       fetchStats();
+      fetchPendingSyncs();
     }, 4000);
 
     return () => clearInterval(statusInterval);
@@ -126,6 +132,55 @@ export default function App() {
   const showFeedback = (type, text) => {
     setFeedbackMsg({ type, text });
     setTimeout(() => setFeedbackMsg({ type: '', text: '' }), 5000);
+  };
+
+  const fetchPendingSyncs = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/pending-syncs`);
+      const data = await res.json();
+      setPendingSyncs(data || []);
+    } catch (err) {
+      console.error('Error fetching pending syncs:', err);
+    }
+  };
+
+  const retryPendingSync = async (id) => {
+    setIsRetryingSyncId(id);
+    try {
+      const res = await fetch(`${API_BASE}/pending-syncs/${id}/retry`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showFeedback('success', data.message || 'Data synchronized successfully!');
+        fetchPendingSyncs();
+        fetchStats();
+      } else {
+        showFeedback('error', data.detail || 'Sync failed.');
+        fetchPendingSyncs();
+      }
+    } catch (err) {
+      showFeedback('error', 'API server unreachable.');
+    } finally {
+      setIsRetryingSyncId(null);
+    }
+  };
+
+  const discardPendingSync = async (id) => {
+    if (!confirm('Are you sure you want to discard this pending scraped data? It will be permanently deleted.')) return;
+    try {
+      const res = await fetch(`${API_BASE}/pending-syncs/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        showFeedback('success', 'Pending sync data discarded.');
+        fetchPendingSyncs();
+      } else {
+        showFeedback('error', 'Failed to discard record.');
+      }
+    } catch (err) {
+      showFeedback('error', 'Server error.');
+    }
   };
 
   const fetchStats = async () => {
@@ -581,6 +636,75 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            {/* Pending sync queue fallback */}
+            {pendingSyncs.length > 0 && (
+              <div className="bg-slate-900 border border-amber-500/20 rounded-2xl p-6 flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-amber-400">
+                    <AlertTriangle className="w-5 h-5 animate-pulse" />
+                    <h2 className="text-xs font-bold text-white uppercase tracking-wider">Pending Database Sync Queue ({pendingSyncs.length})</h2>
+                  </div>
+                  <button 
+                    onClick={fetchPendingSyncs}
+                    className="text-xs text-slate-400 hover:text-white flex items-center gap-1 font-semibold transition"
+                  >
+                    <RefreshCw className="w-3 h-3" /> Refresh
+                  </button>
+                </div>
+                
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  The following scraper runs succeeded, but the database connection timed out or permissions were rejected. 
+                  Update your database settings inside the <strong>Database Config</strong> tab, then click <strong>Retry Sync</strong>.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                  {pendingSyncs.map(sync => (
+                    <div key={sync.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col justify-between gap-3 relative">
+                      <div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-sm text-white">{sync.job_name}</span>
+                          <span className="text-[10px] bg-amber-950 border border-amber-500/50 text-amber-300 px-2 py-0.5 rounded-full font-bold">
+                            {sync.product_count} products
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 font-mono mt-1">
+                          Run: {sync.run_id.slice(0, 8)}... | {new Date(sync.scraped_at).toLocaleString()}
+                        </p>
+                        
+                        <div className="mt-2.5 bg-slate-900/60 p-2.5 rounded border border-rose-950/60 text-[10px] text-rose-300 font-mono break-all whitespace-pre-wrap max-h-20 overflow-y-auto leading-relaxed">
+                          Error: {sync.error_message || 'Unknown network connection failure.'}
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2 border-t border-slate-900 pt-2.5 mt-1">
+                        <button
+                          onClick={() => discardPendingSync(sync.id)}
+                          disabled={isRetryingSyncId === sync.id}
+                          className="text-[10px] text-rose-400 hover:text-rose-300 font-semibold px-2 py-1 hover:bg-rose-950/20 rounded transition"
+                        >
+                          Discard
+                        </button>
+                        <button
+                          onClick={() => retryPendingSync(sync.id)}
+                          disabled={isRetryingSyncId === sync.id}
+                          className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold px-3 py-1 rounded text-[10px] flex items-center gap-1 transition"
+                        >
+                          {isRetryingSyncId === sync.id ? (
+                            <>
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                              Retrying...
+                            </>
+                          ) : (
+                            'Retry Sync'
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Quick Actions and Intro */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

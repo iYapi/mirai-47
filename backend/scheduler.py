@@ -33,6 +33,27 @@ def get_postgres_client(db: Session) -> PostgresClient | None:
         password=config.password
     )
 
+def save_to_pending_sync(db: Session, job_id: int, job_name: str, run_id: str, products: list[dict], error_message: str):
+    """Save scraped products array to local SQLite pending_syncs table."""
+    try:
+        from models import PendingSync
+    except ImportError:
+        from .models import PendingSync
+        
+    try:
+        pending = PendingSync(
+            job_id=job_id,
+            job_name=job_name,
+            run_id=run_id,
+            product_count=len(products),
+            products_data=json.dumps(products, ensure_ascii=False),
+            error_message=error_message
+        )
+        db.add(pending)
+        db.commit()
+    except Exception as e:
+        print(f"Error saving to pending sync queue: {e}")
+
 def execute_scraper_subprocess(job_id: int, run_id: str, is_login_only: bool = False):
     """Executes the scraper script in a subprocess, streams logs, and inserts results to PostgreSQL."""
     db = SessionLocal()
@@ -142,13 +163,20 @@ def execute_scraper_subprocess(job_id: int, run_id: str, is_login_only: bool = F
         pg_client = get_postgres_client(db)
         if not pg_client:
             log("WARNING: PostgreSQL database is not configured or not connected. Scraped products will NOT be saved to Postgres.")
-            log("Please configure PostgreSQL connection settings in the settings panel.")
+            log("Saving products locally to the Pending Sync Queue.")
+            save_to_pending_sync(db, job_id, job.name, run_id, products, "PostgreSQL database not configured or offline")
             finish_run(db, job_id, run_id, "completed", 0, active_runs[run_id]["logs"])
         else:
             log("Connecting to PostgreSQL database and saving products...")
-            inserted = pg_client.insert_products(products)
-            log(f"SUCCESS: Inserted {inserted} products into PostgreSQL scraped_products table.")
-            finish_run(db, job_id, run_id, "completed", inserted, active_runs[run_id]["logs"])
+            try:
+                inserted = pg_client.insert_products(products)
+                log(f"SUCCESS: Inserted {inserted} products into PostgreSQL scraped_products table.")
+                finish_run(db, job_id, run_id, "completed", inserted, active_runs[run_id]["logs"])
+            except Exception as pg_err:
+                log(f"WARNING: PostgreSQL save failed: {pg_err}")
+                log("Saving products locally to the Pending Sync Queue.")
+                save_to_pending_sync(db, job_id, job.name, run_id, products, str(pg_err))
+                finish_run(db, job_id, run_id, "completed", 0, active_runs[run_id]["logs"])
 
     except Exception as e:
         log(f"EXCEPTION: An unexpected error occurred: {e}")
