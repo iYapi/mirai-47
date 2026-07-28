@@ -154,7 +154,7 @@ class PostgresClient:
         sort_column = allowed_columns.get(sort_by, "scraped_at")
         sort_dir = "DESC" if sort_order.lower() == "desc" else "ASC"
         
-        query += f" ORDER BY {sort_column} {sort_dir} LIMIT %(limit)s OFFSET %(offset)s"
+        query += f" ORDER BY {sort_column} {sort_dir} NULLS LAST LIMIT %(limit)s OFFSET %(offset)s"
         params["limit"] = limit
         params["offset"] = offset
         
