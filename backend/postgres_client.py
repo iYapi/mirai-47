@@ -11,7 +11,7 @@ class PostgresClient:
         self.password = password
 
     def _get_connection(self):
-        return psycopg2.connect(
+        conn = psycopg2.connect(
             host=self.host,
             port=self.port,
             database=self.database,
@@ -19,6 +19,8 @@ class PostgresClient:
             password=self.password,
             connect_timeout=5
         )
+        conn.set_client_encoding('UTF8')
+        return conn
 
     def test_connection(self):
         """Test if the connection can be established."""
