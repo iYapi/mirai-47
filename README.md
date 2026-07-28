@@ -24,6 +24,11 @@ A premium, responsive scraping manager dashboard built to run natively on Linux 
 │   └── scripts/                # Dynamic script folders (saves uploaded python scripts)
 │       ├── shopee.py           # Default Shopee Selenium crawler
 │       └── tokopedia.py        # Default Tokopedia Playwright crawler
+├── docs/                       # Comprehensive system documentation
+│   ├── architecture.md         # System structure and block diagrams
+│   ├── scraper_contract.md     # Command-line arguments & JSON schema rules
+│   ├── scheduler_logs.md       # Real-time log capture and APScheduler triggers
+│   └── postgres_sync.md        # PostgreSQL Dynamic Config & migrations
 ├── frontend/                   # React + Vite + Tailwind CSS v4
 │   ├── src/
 │   │   ├── App.jsx             # React Dashboard Panel
