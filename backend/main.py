@@ -417,12 +417,21 @@ def get_scraped_products(
     offset: int = Query(0, ge=0),
     source: Optional[str] = None,
     search: Optional[str] = None,
+    sort_by: str = Query("scraped_at"),
+    sort_order: str = Query("desc"),
     pg_client: Optional[PostgresClient] = Depends(get_active_pg_client)
 ):
     if not pg_client:
         return {"products": [], "total": 0, "status": "PostgreSQL is not configured or not connected."}
 
-    products, total = pg_client.get_products(limit=limit, offset=offset, source=source, search=search)
+    products, total = pg_client.get_products(
+        limit=limit,
+        offset=offset,
+        source=source,
+        search=search,
+        sort_by=sort_by,
+        sort_order=sort_order
+    )
     return {"products": products, "total": total, "status": "connected"}
 
 # --- Dashboard Stats API ---

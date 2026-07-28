@@ -56,6 +56,8 @@ export default function App() {
   const [filterSearch, setFilterSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+  const [sortBy, setSortBy] = useState('scraped_at');
+  const [sortOrder, setSortOrder] = useState('desc');
 
   // Pending Sync state
   const [pendingSyncs, setPendingSyncs] = useState([]);
@@ -122,12 +124,12 @@ export default function App() {
     };
   }, [selectedJobLogs]);
 
-  // Load Products when tab or filters change
+  // Load Products when tab, filters or sorting change
   useEffect(() => {
     if (activeTab === 'explorer') {
       fetchProducts();
     }
-  }, [activeTab, filterSource, currentPage]);
+  }, [activeTab, filterSource, currentPage, sortBy, sortOrder]);
 
   const showFeedback = (type, text) => {
     setFeedbackMsg({ type, text });
@@ -254,7 +256,7 @@ export default function App() {
 
   const fetchProducts = async () => {
     const offset = (currentPage - 1) * itemsPerPage;
-    let url = `${API_BASE}/products?limit=${itemsPerPage}&offset=${offset}`;
+    let url = `${API_BASE}/products?limit=${itemsPerPage}&offset=${offset}&sort_by=${sortBy}&sort_order=${sortOrder}`;
     if (filterSource) url += `&source=${filterSource}`;
     if (filterSearch) url += `&search=${encodeURIComponent(filterSearch)}`;
     
@@ -474,7 +476,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen w-full overflow-x-hidden bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
       {/* Background radial effects */}
       <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute top-1/2 right-1/4 w-[400px] h-[400px] bg-purple-500/10 rounded-full blur-[100px] pointer-events-none" />
@@ -1001,7 +1003,7 @@ export default function App() {
                 <p className="text-xs text-slate-400">View scraped items stored inside PostgreSQL database.</p>
               </div>
               
-              <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex flex-col sm:flex-row flex-wrap gap-3 items-stretch sm:items-center">
                 <div className="relative">
                   <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
                   <input
@@ -1017,11 +1019,31 @@ export default function App() {
                 <select
                   value={filterSource}
                   onChange={(e) => setFilterSource(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-300 focus:outline-none focus:border-indigo-500"
+                  className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-300 focus:outline-none focus:border-indigo-500 font-medium"
                 >
                   <option value="">All Marketplaces</option>
                   <option value="shopee">Shopee</option>
                   <option value="tokopedia">Tokopedia</option>
+                </select>
+
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-300 focus:outline-none focus:border-indigo-500 font-medium"
+                >
+                  <option value="scraped_at">Sort by Date</option>
+                  <option value="price">Sort by Price</option>
+                  <option value="rating">Sort by Rating</option>
+                  <option value="sold">Sort by Sold</option>
+                </select>
+
+                <select
+                  value={sortOrder}
+                  onChange={(e) => setSortOrder(e.target.value)}
+                  className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-300 focus:outline-none focus:border-indigo-500 font-medium"
+                >
+                  <option value="desc">Descending</option>
+                  <option value="asc">Ascending</option>
                 </select>
 
                 <button
@@ -1049,6 +1071,7 @@ export default function App() {
                     <thead>
                       <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/80">
                         <th className="p-3.5">Product Name</th>
+                        <th className="p-3.5">Store Name</th>
                         <th className="p-3.5">Marketplace</th>
                         <th className="p-3.5">Price</th>
                         <th className="p-3.5">Discount Price</th>
@@ -1064,6 +1087,7 @@ export default function App() {
                       {products.map(p => (
                         <tr key={p.id} className="hover:bg-slate-900/50 text-slate-300">
                           <td className="p-3 font-semibold text-white max-w-[200px] truncate" title={p.product_name}>{p.product_name}</td>
+                          <td className="p-3 truncate max-w-[130px] font-medium text-slate-200" title={p.store_name}>{p.store_name || '-'}</td>
                           <td className="p-3">
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase ${
                               p.source === 'shopee' 
@@ -1119,6 +1143,14 @@ export default function App() {
                         <div>
                           <span className="text-slate-500 block text-[10px]">Sold:</span>
                           <span className="text-slate-300">{p.sold_count || 'N/A'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[10px]">Store:</span>
+                          <span className="text-slate-300 font-semibold truncate block max-w-[120px]" title={p.store_name}>{p.store_name || '-'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[10px]">Store Type:</span>
+                          <span className="text-slate-300 truncate block">{p.store_type || 'Regular'}</span>
                         </div>
                         <div className="col-span-2">
                           <span className="text-slate-500 block text-[10px]">Location:</span>

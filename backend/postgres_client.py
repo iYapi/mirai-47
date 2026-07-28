@@ -131,7 +131,7 @@ class PostgresClient:
             
         return inserted_count
 
-    def get_products(self, limit=100, offset=0, source=None, search=None):
+    def get_products(self, limit=100, offset=0, source=None, search=None, sort_by="scraped_at", sort_order="desc"):
         """Fetch products from PostgreSQL for data viewing in dashboard."""
         query = "SELECT * FROM scraped_products WHERE 1=1"
         params = {}
@@ -144,7 +144,17 @@ class PostgresClient:
             query += " AND product_name ILIKE %(search)s"
             params["search"] = f"%{search}%"
             
-        query += " ORDER BY scraped_at DESC LIMIT %(limit)s OFFSET %(offset)s"
+        # Sorting validation
+        allowed_columns = {
+            "scraped_at": "scraped_at",
+            "price": "original_price_cleaned",
+            "rating": "rating_cleaned",
+            "sold": "sold_count_cleaned"
+        }
+        sort_column = allowed_columns.get(sort_by, "scraped_at")
+        sort_dir = "DESC" if sort_order.lower() == "desc" else "ASC"
+        
+        query += f" ORDER BY {sort_column} {sort_dir} LIMIT %(limit)s OFFSET %(offset)s"
         params["limit"] = limit
         params["offset"] = offset
         
