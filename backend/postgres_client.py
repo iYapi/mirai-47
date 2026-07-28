@@ -70,7 +70,9 @@ class PostgresClient:
         if not products:
             return 0
             
-        self.init_db()
+        success, err_msg = self.init_db()
+        if not success:
+            raise Exception(f"Failed to initialize PostgreSQL table: {err_msg}")
 
         query = """
         INSERT INTO scraped_products (
