@@ -10,9 +10,9 @@ from sqlalchemy.orm import Session
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from .database import SessionLocal
-from .models import ScraperJob, PostgresConfig, JobLog
-from .postgres_client import PostgresClient
+from database import SessionLocal
+from models import ScraperJob, PostgresConfig, JobLog
+from postgres_client import PostgresClient
 
 # In-memory buffer for active runs logs
 # format: { run_id: { "logs": [...], "status": "running", "job_id": int, "name": str } }

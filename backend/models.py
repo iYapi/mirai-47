@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey
 from sqlalchemy.orm import relationship
-from .database import Base
+from database import Base
 
 class PostgresConfig(Base):
     __tablename__ = "postgres_config"

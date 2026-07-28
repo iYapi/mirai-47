@@ -7,10 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-from .database import engine, Base, get_db, SessionLocal
-from .models import PostgresConfig, ScraperJob, JobLog
-from .postgres_client import PostgresClient
-from .scheduler import (
+from database import engine, Base, get_db, SessionLocal
+from models import PostgresConfig, ScraperJob, JobLog
+from postgres_client import PostgresClient
+from scheduler import (
     start_scheduler,
     add_or_update_scheduler_job,
     remove_scheduler_job,
