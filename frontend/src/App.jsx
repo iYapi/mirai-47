@@ -1410,9 +1410,10 @@ export default function App() {
                     required
                     value={newJob.schedule_time}
                     onChange={(e) => setNewJob({...newJob, schedule_time: e.target.value})}
-                    placeholder="01:00"
+                    placeholder="01:00 or 01:00-03:00"
                     className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
                   />
+                  <p className="text-[10px] text-slate-500 mt-0.5">E.g., 01:30 (fixed) or 01:00-03:00 (random daily range).</p>
                 </div>
               </div>
 
@@ -1486,9 +1487,10 @@ export default function App() {
                     required
                     value={editJobForm.schedule_time}
                     onChange={(e) => setEditJobForm({...editJobForm, schedule_time: e.target.value})}
-                    placeholder="01:00"
+                    placeholder="01:00 or 01:00-03:00"
                     className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
                   />
+                  <p className="text-[10px] text-slate-500 mt-0.5">E.g., 01:30 (fixed) or 01:00-03:00 (random daily range).</p>
                 </div>
               </div>
 

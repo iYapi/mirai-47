@@ -5,7 +5,8 @@ import json
 import tempfile
 import threading
 import subprocess
-from datetime import datetime
+import random
+from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -196,6 +197,10 @@ def finish_run(db: Session, job_id: int, run_id: str, status: str, count: int, l
     if job:
         job.status = "idle"
         db.commit()
+        
+        # Reschedule next random time if it's a range schedule
+        if job.enabled and job.schedule_time and "-" in job.schedule_time:
+            add_or_update_scheduler_job(job)
 
     log_text = "\n".join(logs)
     job_log = JobLog(
@@ -226,8 +231,38 @@ def trigger_job_now(job_id: int, is_login_only: bool = False) -> str:
     thread.start()
     return run_id
 
+def calculate_next_random_run(schedule_time: str) -> datetime:
+    """Calculate the next execution datetime within the specified range (e.g., '01:00-03:00')."""
+    try:
+        start_str, end_str = schedule_time.split("-")
+        start_h, start_m = map(int, start_str.split(":"))
+        end_h, end_m = map(int, end_str.split(":"))
+        
+        start_total = start_h * 60 + start_m
+        end_total = end_h * 60 + end_m
+        
+        if end_total < start_total:
+            # Handle cross-midnight
+            end_total += 24 * 60
+            
+        random_offset = random.randint(start_total, end_total)
+        
+        # Calculate for today first
+        now = datetime.now()
+        target_time = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(minutes=random_offset)
+        
+        # If it's already in the past, schedule for tomorrow
+        if target_time <= now:
+            target_time = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(minutes=random_offset)
+            
+        return target_time
+    except Exception as e:
+        print(f"Error calculating next random run for '{schedule_time}': {e}")
+        now = datetime.now()
+        return (now + timedelta(days=1)).replace(hour=1, minute=0, second=0, microsecond=0)
+
 def add_or_update_scheduler_job(job: ScraperJob):
-    """Dynamically schedule or update a job in APScheduler."""
+    """Dynamically schedule or update a job in APScheduler (supports specific HH:MM or range HH:MM-HH:MM)."""
     job_id_str = f"job_{job.id}"
     
     try:
@@ -239,19 +274,45 @@ def add_or_update_scheduler_job(job: ScraperJob):
     if not job.enabled or not job.schedule_time:
         return
 
-    try:
-        hour, minute = map(int, job.schedule_time.split(":"))
-        trigger = CronTrigger(hour=hour, minute=minute)
-        scheduler.add_job(
-            run_job_wrapper,
-            trigger=trigger,
-            args=[job.id],
-            id=job_id_str,
-            replace_existing=True
-        )
-        print(f"Scheduled job '{job.name}' to run daily at {job.schedule_time}")
-    except Exception as e:
-        print(f"Failed to schedule job '{job.name}': {e}")
+    # Check if range or specific time
+    if "-" in job.schedule_time:
+        # Range schedule (e.g. 01:00-03:00)
+        next_run_time = calculate_next_random_run(job.schedule_time)
+        try:
+            scheduler.add_job(
+                run_job_wrapper,
+                trigger='date',
+                run_date=next_run_time,
+                args=[job.id],
+                id=job_id_str,
+                replace_existing=True
+            )
+            print(f"Scheduled range job '{job.name}' for a random occurrence at {next_run_time}")
+            
+            # Save the next run time in SQLite database so the UI can show it
+            db = SessionLocal()
+            db_job = db.query(ScraperJob).filter(ScraperJob.id == job.id).first()
+            if db_job:
+                db_job.next_run = next_run_time
+                db.commit()
+            db.close()
+        except Exception as e:
+            print(f"Failed to schedule range job '{job.name}': {e}")
+    else:
+        # Specific time schedule (e.g. 01:00)
+        try:
+            hour, minute = map(int, job.schedule_time.split(":"))
+            trigger = CronTrigger(hour=hour, minute=minute)
+            scheduler.add_job(
+                run_job_wrapper,
+                trigger=trigger,
+                args=[job.id],
+                id=job_id_str,
+                replace_existing=True
+            )
+            print(f"Scheduled job '{job.name}' to run daily at {job.schedule_time}")
+        except Exception as e:
+            print(f"Failed to schedule job '{job.name}': {e}")
 
 def remove_scheduler_job(job_id: int):
     """Remove a job from APScheduler."""

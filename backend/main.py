@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import shutil
 from typing import Optional
@@ -182,6 +183,27 @@ def get_jobs(db: Session = Depends(get_db)):
             job.next_run = None
     return jobs
 
+def validate_schedule_time(schedule_time: str) -> bool:
+    if not schedule_time:
+        return True
+    if re.match(r"^\d{2}:\d{2}$", schedule_time):
+        try:
+            h, m = map(int, schedule_time.split(":"))
+            return 0 <= h < 24 and 0 <= m < 60
+        except ValueError:
+            return False
+    if re.match(r"^\d{2}:\d{2}-\d{2}:\d{2}$", schedule_time):
+        try:
+            parts = schedule_time.split("-")
+            for p in parts:
+                h, m = map(int, p.split(":"))
+                if not (0 <= h < 24 and 0 <= m < 60):
+                    return False
+            return True
+        except ValueError:
+            return False
+    return False
+
 @app.post("/api/jobs")
 def create_job(payload: ScraperJobCreate, db: Session = Depends(get_db)):
     # Check if script file exists
@@ -190,6 +212,13 @@ def create_job(payload: ScraperJobCreate, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=400,
             detail=f"Script file '{payload.script_filename}' does not exist. Please upload it first."
+        )
+
+    # Validate schedule format
+    if payload.schedule_time and not validate_schedule_time(payload.schedule_time):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid schedule time format. Must be HH:MM (e.g., 01:30) or HH:MM-HH:MM (e.g., 01:00-03:00)."
         )
 
     # Check for name uniqueness
@@ -228,6 +257,11 @@ def update_job(id: int, payload: ScraperJobUpdate, db: Session = Depends(get_db)
     if payload.max_pages is not None:
         job.max_pages = payload.max_pages
     if payload.schedule_time is not None:
+        if payload.schedule_time and not validate_schedule_time(payload.schedule_time):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid schedule time format. Must be HH:MM (e.g., 01:30) or HH:MM-HH:MM (e.g., 01:00-03:00)."
+            )
         job.schedule_time = payload.schedule_time
     if payload.enabled is not None:
         job.enabled = payload.enabled
