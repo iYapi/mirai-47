@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: cron_backend
+    environment:
+      - DISPLAY=${DISPLAY}
+      - DB_PATH=/app/data/cron_panel.db
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - backend_data:/app/data
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    container_name: cron_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  backend_data:
