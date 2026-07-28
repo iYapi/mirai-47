@@ -1,6 +1,6 @@
 # System Architecture
 
-The **CronScrape Panel** is organized into three decoupled layers: a FastAPI backend server, a Vite + React single-page application frontend, and an external PostgreSQL database pipeline for scraper storage.
+The **Mirai-47** is organized into three decoupled layers: a FastAPI backend server, a Vite + React single-page application frontend, and an external PostgreSQL database pipeline for scraper storage.
 
 ```
                   ┌──────────────────────┐

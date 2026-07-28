@@ -1,4 +1,4 @@
-# CronScrape Panel
+# Mirai-47
 
 A premium, responsive scraping manager dashboard built to run natively on Linux Zorin OS PC (or any desktop system). It schedules, triggers, logs, and manages custom python scraping scripts (including Chromium Selenium and Playwright), automatically pipelines results into an external PostgreSQL database, and provides a sleek live terminal monitor.
 

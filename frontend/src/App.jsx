@@ -489,7 +489,7 @@ export default function App() {
               <Server className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-white">CronScrape Panel</h1>
+              <h1 className="text-xl font-bold tracking-tight text-white">Mirai-47</h1>
               <p className="text-xs text-slate-400">Scraping Scheduler & Postgres Auto-Sync</p>
             </div>
           </div>
@@ -1599,7 +1599,7 @@ export default function App() {
       {/* Footer */}
       <footer className="border-t border-slate-800 py-6 bg-slate-950/80 text-center text-xs text-slate-500 mt-auto">
         <div className="max-w-7xl mx-auto px-4">
-          <p>© 2026 CronScrape Panel. Designed for native desktop automation on Linux Zorin OS PC.</p>
+          <p>© 2026 Mirai-47. Designed for native desktop automation on Linux Zorin OS PC.</p>
         </div>
       </footer>
     </div>
