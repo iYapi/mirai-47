@@ -182,11 +182,14 @@ def scrape_tokopedia(base_url: str, max_pages: int, run_headless: bool) -> list[
                     link_el = card.query_selector("a")
                     product_url = link_el.get_attribute("href") if link_el else None
                     
+                    clean_url_route = None
                     if product_url:
                         clean_url = product_url.split("?")[0]
                         if clean_url in scraped_urls:
                             continue
                         scraped_urls.add(clean_url)
+                        from urllib.parse import urlparse
+                        clean_url_route = urlparse(clean_url).path
                     else:
                         name_el = card.query_selector(NAME_SELECTOR)
                         fallback_name = name_el.inner_text().strip() if name_el else None
@@ -238,6 +241,7 @@ def scrape_tokopedia(base_url: str, max_pages: int, run_headless: bool) -> list[
                             store_type = "Power Merchant"
 
                     results.append({
+                        "url": clean_url_route,
                         "product_name": product_name,
                         "original_price": original_price,
                         "original_price_cleaned": clean_price(original_price),

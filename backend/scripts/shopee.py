@@ -293,11 +293,14 @@ def scrape_shopee(base_url: str, max_pages: int, run_headless: bool) -> list[dic
                     if not product_name:
                         continue
                         
+                    clean_url_route = None
                     if product_url:
                         clean_url = product_url.split("?")[0]
                         if clean_url in scraped_urls:
                             continue
                         scraped_urls.add(clean_url)
+                        from urllib.parse import urlparse
+                        clean_url_route = urlparse(clean_url).path
                     else:
                         if product_name in scraped_urls:
                             continue
@@ -320,6 +323,7 @@ def scrape_shopee(base_url: str, max_pages: int, run_headless: bool) -> list[dic
                     store_type = item["storeType"] or "Regular Merchant"
 
                     results.append({
+                        "url": clean_url_route,
                         "product_name": product_name,
                         "original_price": original_price,
                         "original_price_cleaned": clean_price(original_price),

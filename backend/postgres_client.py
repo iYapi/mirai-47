@@ -32,35 +32,51 @@ class PostgresClient:
             return False, str(e)
 
     def init_db(self):
-        """Create the scraped_products table if it doesn't exist."""
-        query = """
-        CREATE TABLE IF NOT EXISTS scraped_products (
-            id SERIAL PRIMARY KEY,
-            product_name TEXT NOT NULL,
-            original_price TEXT,
-            original_price_cleaned BIGINT,
-            discount_price TEXT,
-            discount_price_cleaned BIGINT,
-            discount_percentage TEXT,
-            rating TEXT,
-            rating_cleaned NUMERIC(3,2),
-            sold_count TEXT,
-            sold_count_cleaned INTEGER,
-            store_name TEXT,
-            store_location TEXT,
-            store_type TEXT,
-            source TEXT NOT NULL,
-            page INTEGER,
-            scraped_at TIMESTAMP NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        """Create the scraped_products table if it doesn't exist. Re-creates if old schema detected."""
+        check_query = """
+        SELECT EXISTS (
+            SELECT 1 
+            FROM information_schema.columns 
+            WHERE table_name='scraped_products' AND column_name='raw_data'
         );
-        CREATE INDEX IF NOT EXISTS idx_products_source ON scraped_products(source);
-        CREATE INDEX IF NOT EXISTS idx_products_scraped_at ON scraped_products(scraped_at);
         """
+        table_exists_query = """
+        SELECT EXISTS (
+            SELECT 1 
+            FROM information_schema.tables 
+            WHERE table_name='scraped_products'
+        );
+        """
+        
         try:
             conn = self._get_connection()
             with conn.cursor() as cur:
-                cur.execute(query)
+                # Check if table exists
+                cur.execute(table_exists_query)
+                table_exists = cur.fetchone()[0]
+                
+                if table_exists:
+                    # Check if it has raw_data column
+                    cur.execute(check_query)
+                    has_raw_data = cur.fetchone()[0]
+                    if not has_raw_data:
+                        print("Old scraped_products schema detected. Dropping table to recreate with JSONB support...")
+                        cur.execute("DROP TABLE IF EXISTS scraped_products CASCADE;")
+                        conn.commit()
+                
+                # Now create the new table structure
+                create_query = """
+                CREATE TABLE IF NOT EXISTS scraped_products (
+                    id SERIAL PRIMARY KEY,
+                    url TEXT,
+                    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    raw_data JSONB NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_products_url ON scraped_products(url);
+                CREATE INDEX IF NOT EXISTS idx_products_timestamp ON scraped_products(timestamp);
+                CREATE INDEX IF NOT EXISTS idx_products_source ON scraped_products ((raw_data->>'source'));
+                """
+                cur.execute(create_query)
                 conn.commit()
             conn.close()
             return True, "Table initialized successfully"
@@ -77,48 +93,34 @@ class PostgresClient:
             raise Exception(f"Failed to initialize PostgreSQL table: {err_msg}")
 
         query = """
-        INSERT INTO scraped_products (
-            product_name, original_price, original_price_cleaned,
-            discount_price, discount_price_cleaned, discount_percentage,
-            rating, rating_cleaned, sold_count, sold_count_cleaned,
-            store_name, store_location, store_type, source, page, scraped_at
-        ) VALUES (
-            %(product_name)s, %(original_price)s, %(original_price_cleaned)s,
-            %(discount_price)s, %(discount_price_cleaned)s, %(discount_percentage)s,
-            %(rating)s, %(rating_cleaned)s, %(sold_count)s, %(sold_count_cleaned)s,
-            %(store_name)s, %(store_location)s, %(store_type)s, %(source)s, %(page)s, %(scraped_at)s
-        )
+        INSERT INTO scraped_products (url, timestamp, raw_data)
+        VALUES (%(url)s, %(timestamp)s, %(raw_data)s)
         """
         
+        import json
         inserted_count = 0
         try:
             conn = self._get_connection()
             with conn.cursor() as cur:
                 for product in products:
+                    product_url = product.get("url")
+                    
                     scraped_at = product.get("scraped_at")
                     if isinstance(scraped_at, str):
                         try:
                             scraped_at = datetime.fromisoformat(scraped_at.replace("Z", "+00:00"))
                         except ValueError:
                             scraped_at = datetime.utcnow()
+                    else:
+                        scraped_at = datetime.utcnow()
+                    
+                    # Store everything in raw_data as serialized JSON
+                    raw_data_json = json.dumps(product, ensure_ascii=False)
                     
                     product_data = {
-                        "product_name": product.get("product_name"),
-                        "original_price": product.get("original_price"),
-                        "original_price_cleaned": product.get("original_price_cleaned"),
-                        "discount_price": product.get("discount_price"),
-                        "discount_price_cleaned": product.get("discount_price_cleaned"),
-                        "discount_percentage": product.get("discount_percentage"),
-                        "rating": product.get("rating"),
-                        "rating_cleaned": product.get("rating_cleaned"),
-                        "sold_count": product.get("sold_count"),
-                        "sold_count_cleaned": product.get("sold_count_cleaned"),
-                        "store_name": product.get("store_name"),
-                        "store_location": product.get("store_location"),
-                        "store_type": product.get("store_type"),
-                        "source": product.get("source", "unknown"),
-                        "page": product.get("page", 1),
-                        "scraped_at": scraped_at
+                        "url": product_url,
+                        "timestamp": scraped_at,
+                        "raw_data": raw_data_json
                     }
                     
                     cur.execute(query, product_data)
@@ -133,25 +135,48 @@ class PostgresClient:
 
     def get_products(self, limit=100, offset=0, source=None, search=None, sort_by="scraped_at", sort_order="desc"):
         """Fetch products from PostgreSQL for data viewing in dashboard."""
-        query = "SELECT * FROM scraped_products WHERE 1=1"
+        query = """
+        SELECT 
+            id,
+            url,
+            timestamp,
+            raw_data->>'product_name' AS product_name,
+            raw_data->>'original_price' AS original_price,
+            (raw_data->>'original_price_cleaned')::bigint AS original_price_cleaned,
+            raw_data->>'discount_price' AS discount_price,
+            (raw_data->>'discount_price_cleaned')::bigint AS discount_price_cleaned,
+            raw_data->>'discount_percentage' AS discount_percentage,
+            raw_data->>'rating' AS rating,
+            (raw_data->>'rating_cleaned')::numeric(3,2) AS rating_cleaned,
+            raw_data->>'sold_count' AS sold_count,
+            (raw_data->>'sold_count_cleaned')::integer AS sold_count_cleaned,
+            raw_data->>'store_name' AS store_name,
+            raw_data->>'store_location' AS store_location,
+            raw_data->>'store_type' AS store_type,
+            raw_data->>'source' AS source,
+            (raw_data->>'page')::integer AS page,
+            timestamp AS scraped_at
+        FROM scraped_products 
+        WHERE 1=1
+        """
         params = {}
         
         if source:
-            query += " AND source = %(source)s"
+            query += " AND raw_data->>'source' = %(source)s"
             params["source"] = source
             
         if search:
-            query += " AND product_name ILIKE %(search)s"
+            query += " AND raw_data->>'product_name' ILIKE %(search)s"
             params["search"] = f"%{search}%"
             
         # Sorting validation
         allowed_columns = {
-            "scraped_at": "scraped_at",
-            "price": "original_price_cleaned",
-            "rating": "rating_cleaned",
-            "sold": "sold_count_cleaned"
+            "scraped_at": "timestamp",
+            "price": "(raw_data->>'original_price_cleaned')::bigint",
+            "rating": "(raw_data->>'rating_cleaned')::numeric(3,2)",
+            "sold": "(raw_data->>'sold_count_cleaned')::integer"
         }
-        sort_column = allowed_columns.get(sort_by, "scraped_at")
+        sort_column = allowed_columns.get(sort_by, "timestamp")
         sort_dir = "DESC" if sort_order.lower() == "desc" else "ASC"
         
         query += f" ORDER BY {sort_column} {sort_dir} NULLS LAST LIMIT %(limit)s OFFSET %(offset)s"
@@ -161,12 +186,12 @@ class PostgresClient:
         count_query = "SELECT COUNT(*) FROM scraped_products WHERE 1=1"
         count_params = {}
         if source:
-            count_query += " AND source = %(source)s"
+            count_query += " AND raw_data->>'source' = %(source)s"
             count_params["source"] = source
         if search:
-            count_query += " AND product_name ILIKE %(search)s"
+            count_query += " AND raw_data->>'product_name' ILIKE %(search)s"
             count_params["search"] = f"%{search}%"
-
+            
         results = []
         total = 0
         
