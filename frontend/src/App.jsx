@@ -84,6 +84,7 @@ export default function App() {
   });
 
   const [editJobForm, setEditJobForm] = useState(null);
+  const [chainActive, setChainActive] = useState(false);
   const [bulkJobForm, setBulkJobForm] = useState({
     script_filename: '',
     urls_input: '',
@@ -221,11 +222,38 @@ export default function App() {
     }
   };
 
+  const fetchChainStatus = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/chain/status`);
+      if (res.ok) {
+        const data = await res.json();
+        setChainActive(data.chain_active);
+      }
+    } catch (err) {
+      console.error('Error fetching chain status:', err);
+    }
+  };
+
+  const handleStopChain = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/chain/stop`, { method: 'POST' });
+      if (res.ok) {
+        showFeedback('success', 'Execution chain interrupted and stopped.');
+        fetchJobs();
+      } else {
+        showFeedback('error', 'Failed to stop execution chain.');
+      }
+    } catch (err) {
+      showFeedback('error', 'API failure.');
+    }
+  };
+
   const fetchJobs = async () => {
     try {
       const res = await fetch(`${API_BASE}/jobs`);
       const data = await res.json();
       setJobs(data);
+      fetchChainStatus();
     } catch (err) {
       console.error('Error fetching jobs:', err);
     }
@@ -994,6 +1022,15 @@ export default function App() {
                 <p className="text-xs text-slate-400">Run immediate browser-assisted scrapings, trigger cookie login configurations, and schedule cron timing parameters.</p>
               </div>
               <div className="flex items-center gap-2">
+                {chainActive && (
+                  <button
+                    onClick={handleStopChain}
+                    className="bg-rose-950 border border-rose-500/40 text-rose-300 hover:bg-rose-900 text-sm font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition animate-pulse mr-2"
+                    title="Stop/Interrupt current continuous chain sequence"
+                  >
+                    <XCircle className="w-4 h-4 text-rose-400" /> Interrupt Chain
+                  </button>
+                )}
                 <button
                   onClick={() => setShowUploadModal(true)}
                   className="bg-slate-950 border border-slate-800 text-indigo-400 hover:bg-slate-900 text-sm font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition"

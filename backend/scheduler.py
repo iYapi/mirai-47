@@ -19,6 +19,7 @@ from postgres_client import PostgresClient
 # In-memory buffer for active runs logs
 # format: { run_id: { "logs": [...], "status": "running", "job_id": int, "name": str } }
 active_runs = {}
+chain_active = False
 
 scheduler = BackgroundScheduler()
 
@@ -244,6 +245,8 @@ def finish_run(db: Session, job_id: int, run_id: str, status: str, count: int, l
 
 def run_job_wrapper(job_id: int):
     """APScheduler job target wrapper to trigger the job in a background thread."""
+    global chain_active
+    chain_active = True
     run_id = str(uuid.uuid4())
     thread = threading.Thread(target=execute_scraper_subprocess, args=(job_id, run_id))
     thread.daemon = True
@@ -251,6 +254,9 @@ def run_job_wrapper(job_id: int):
 
 def trigger_job_now(job_id: int, is_login_only: bool = False) -> str:
     """Manually run a job immediately in the background. Returns the run_id."""
+    if not is_login_only:
+        global chain_active
+        chain_active = True
     run_id = str(uuid.uuid4())
     thread = threading.Thread(target=execute_scraper_subprocess, args=(job_id, run_id, is_login_only))
     thread.daemon = True
@@ -286,12 +292,44 @@ def calculate_next_random_run(schedule_time: str) -> datetime:
         now = datetime.now()
         return (now + timedelta(days=1)).replace(hour=1, minute=0, second=0, microsecond=0)
 
-def trigger_next_continuous_job(completed_job_id: Optional[int] = None, startup_bootstrap: bool = False):
+def is_chain_active() -> bool:
+    global chain_active
+    return chain_active
+
+def stop_chain():
+    """Interrupts and stops the current scraper execution chain."""
+    global chain_active
+    chain_active = False
+    print("Execution chain interrupted and stopped.")
+    
+    db = SessionLocal()
+    try:
+        # Cancel any scheduled continuous jobs
+        continuous_jobs = db.query(ScraperJob).filter(ScraperJob.continuous == True).all()
+        for job in continuous_jobs:
+            job_id_str = f"job_{job.id}"
+            try:
+                if scheduler.get_job(job_id_str):
+                    scheduler.remove_job(job_id_str)
+            except Exception:
+                pass
+            job.next_run = None
+        db.commit()
+    except Exception as e:
+        print(f"Error stopping chain jobs: {e}")
+    finally:
+        db.close()
+
+def trigger_next_continuous_job(completed_job_id: int):
     """
-    Selects the next enabled continuous scraper job and schedules it to run.
-    Enforces sequential execution: only one continuous job runs at a time.
-    Adds a random delay of 0 to 3 minutes (0-180 seconds) before the next run.
+    Selects the next enabled continuous scraper job after completed_job_id
+    and schedules it to run if the chain is active.
     """
+    global chain_active
+    if not chain_active:
+        print("Execution chain is inactive. Stopping.")
+        return
+
     import random
     db = SessionLocal()
     try:
@@ -301,47 +339,27 @@ def trigger_next_continuous_job(completed_job_id: Optional[int] = None, startup_
         ).order_by(ScraperJob.id).all()
 
         if not continuous_jobs:
-            # Clear next_run for any non-enabled continuous jobs
-            db_jobs = db.query(ScraperJob).filter(ScraperJob.continuous == True).all()
-            for dj in db_jobs:
-                if dj.next_run is not None:
-                    dj.next_run = None
+            chain_active = False
+            return
+
+        # Find the next continuous job in the chain (first continuous job with ID > completed_job_id)
+        next_job = None
+        for job in continuous_jobs:
+            if job.id > completed_job_id:
+                next_job = job
+                break
+
+        if not next_job:
+            print("Reached the end of the chain. Chain completed.")
+            chain_active = False
+            # Clear continuous jobs' next_run
+            for job in continuous_jobs:
+                job.next_run = None
             db.commit()
             return
 
-        # Find the next job in the loop
-        next_job = None
-        if completed_job_id is not None:
-            completed_index = -1
-            for idx, job in enumerate(continuous_jobs):
-                if job.id == completed_job_id:
-                    completed_index = idx
-                    break
-            
-            if completed_index != -1:
-                next_index = (completed_index + 1) % len(continuous_jobs)
-                next_job = continuous_jobs[next_index]
-            else:
-                next_job = continuous_jobs[0]
-        else:
-            # Check if any continuous job is already scheduled next
-            already_scheduled = False
-            for job in continuous_jobs:
-                job_id_str = f"job_{job.id}"
-                if scheduler.get_job(job_id_str):
-                    already_scheduled = True
-                    break
-            if already_scheduled:
-                print("A continuous job is already scheduled next. Skipping bootstrap.")
-                return
-            next_job = continuous_jobs[0]
-
-        # 5 seconds for startup/manual boots, 0-180 seconds for loop iterations
-        if startup_bootstrap:
-            delay_seconds = 5
-        else:
-            delay_seconds = random.randint(0, 180)
-
+        # Pick random delay: 0 to 3 minutes (0 to 180 seconds)
+        delay_seconds = random.randint(0, 180)
         next_run_time = datetime.now() + timedelta(seconds=delay_seconds)
         job_id_str = f"job_{next_job.id}"
 
@@ -355,7 +373,7 @@ def trigger_next_continuous_job(completed_job_id: Optional[int] = None, startup_
                 pass
             job.next_run = None
         
-        # Schedule the next job
+        # Schedule the next job in the chain
         try:
             scheduler.add_job(
                 run_job_wrapper,
@@ -367,9 +385,9 @@ def trigger_next_continuous_job(completed_job_id: Optional[int] = None, startup_
             )
             next_job.next_run = next_run_time
             db.commit()
-            print(f"Scheduled next continuous job '{next_job.name}' (ID: {next_job.id}) in {delay_seconds} seconds (at {next_run_time})")
+            print(f"Scheduled next job in chain: '{next_job.name}' (ID: {next_job.id}) in {delay_seconds} seconds (at {next_run_time})")
         except Exception as e:
-            print(f"Error scheduling continuous job {next_job.name}: {e}")
+            print(f"Error scheduling next chain job {next_job.name}: {e}")
 
     except Exception as e:
         print(f"Error inside trigger_next_continuous_job: {e}")
@@ -390,7 +408,7 @@ def add_or_update_scheduler_job(job: ScraperJob):
         return
 
     if job.continuous:
-        trigger_next_continuous_job(startup_bootstrap=True)
+        # Continuous jobs are run sequentially in the chain trigger loop; they are not scheduled independently.
         return
 
     if not job.schedule_time:
@@ -455,7 +473,7 @@ def remove_scheduler_job(job_id: int):
             scheduler.remove_job(job_id_str)
             print(f"Removed job {job_id_str} from scheduler")
             if is_continuous:
-                trigger_next_continuous_job(completed_job_id=job_id, startup_bootstrap=True)
+                trigger_next_continuous_job(completed_job_id=job_id)
     except Exception as e:
         print(f"Error removing job {job_id_str}: {e}")
 
@@ -472,8 +490,6 @@ def start_scheduler():
         for job in jobs:
             if job.enabled and not job.continuous:
                 add_or_update_scheduler_job(job)
-        # Bootstrap continuous loop sequence
-        trigger_next_continuous_job(startup_bootstrap=True)
     except Exception as e:
         print(f"Error scheduling active jobs on startup: {e}")
     finally:

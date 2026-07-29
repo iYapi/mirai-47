@@ -18,7 +18,9 @@ from scheduler import (
     add_or_update_scheduler_job,
     remove_scheduler_job,
     trigger_job_now,
-    active_runs
+    active_runs,
+    stop_chain,
+    is_chain_active
 )
 
 # Initialize database tables
@@ -346,6 +348,17 @@ class BulkEnableSchema(BaseModel):
 
 class BulkDeleteSchema(BaseModel):
     ids: list[int]
+
+# --- Chain Trigger Controls ---
+
+@app.get("/api/chain/status")
+def get_chain_status():
+    return {"chain_active": is_chain_active()}
+
+@app.post("/api/chain/stop")
+def trigger_stop_chain():
+    stop_chain()
+    return {"success": True, "message": "Scraper chain interrupted and stopped."}
 
 @app.post("/api/jobs/bulk")
 def bulk_create_jobs(payload: BulkJobCreateSchema, db: Session = Depends(get_db)):
