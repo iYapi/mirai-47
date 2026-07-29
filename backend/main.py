@@ -83,6 +83,13 @@ def startup_event():
     except Exception as e:
         print(f"Migration note (continuous column might already exist): {e}")
 
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE scraper_jobs ADD COLUMN position INTEGER DEFAULT 0;"))
+        print("Successfully added 'position' column to scraper_jobs table.")
+    except Exception as e:
+        print(f"Migration note (position column might already exist): {e}")
+
     db = SessionLocal()
     try:
 
@@ -207,7 +214,7 @@ def list_script_files():
 
 @app.get("/api/jobs")
 def get_jobs(db: Session = Depends(get_db)):
-    jobs = db.query(ScraperJob).all()
+    jobs = db.query(ScraperJob).order_by(ScraperJob.position.asc()).all()
     # Populate next run time dynamically if active in APScheduler
     from scheduler import scheduler
     for job in jobs:
@@ -359,6 +366,18 @@ def get_chain_status():
 def trigger_stop_chain():
     stop_chain()
     return {"success": True, "message": "Scraper chain interrupted and stopped."}
+
+class ReorderJobsSchema(BaseModel):
+    ids: list[int]
+
+@app.put("/api/jobs/reorder")
+def reorder_jobs(payload: ReorderJobsSchema, db: Session = Depends(get_db)):
+    for index, job_id in enumerate(payload.ids):
+        job = db.query(ScraperJob).filter(ScraperJob.id == job_id).first()
+        if job:
+            job.position = index
+    db.commit()
+    return {"success": True, "message": "Jobs reordered successfully."}
 
 @app.post("/api/jobs/bulk")
 def bulk_create_jobs(payload: BulkJobCreateSchema, db: Session = Depends(get_db)):

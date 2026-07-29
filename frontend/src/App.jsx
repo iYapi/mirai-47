@@ -18,7 +18,9 @@ import {
   AlertTriangle,
   FolderOpen,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8000/api';
@@ -245,6 +247,41 @@ export default function App() {
       }
     } catch (err) {
       showFeedback('error', 'API failure.');
+    }
+  };
+
+  const handleReorderJob = async (index, direction) => {
+    const activeJobs = jobs.filter(j => j.continuous && j.enabled);
+    if (activeJobs.length <= 1) return;
+    
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= activeJobs.length) return;
+    
+    // Swap items in local array
+    const newActiveJobs = [...activeJobs];
+    const temp = newActiveJobs[index];
+    newActiveJobs[index] = newActiveJobs[targetIndex];
+    newActiveJobs[targetIndex] = temp;
+    
+    // Gather all IDs maintaining relative index configurations
+    const activeIds = newActiveJobs.map(j => j.id);
+    const otherIds = jobs.filter(j => !(j.continuous && j.enabled)).map(j => j.id);
+    const finalIds = [...activeIds, ...otherIds];
+    
+    try {
+      const res = await fetch(`${API_BASE}/jobs/reorder`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: finalIds })
+      });
+      if (res.ok) {
+        showFeedback('success', 'Execution queue reordered successfully!');
+        fetchJobs();
+      } else {
+        showFeedback('error', 'Failed to reorder execution queue.');
+      }
+    } catch (err) {
+      showFeedback('error', 'API reorder failure.');
     }
   };
 
@@ -750,6 +787,17 @@ export default function App() {
             }`}
           >
             <FileCode className="w-4 h-4" /> Manage Scripts ({jobs.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('queue')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 shrink-0 ${
+              activeTab === 'queue' 
+                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10' 
+                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+            }`}
+          >
+            <RefreshCw className="w-4 h-4" /> Sequential Queue {chainActive && <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse ml-1" />}
           </button>
 
           <button
@@ -1273,6 +1321,225 @@ export default function App() {
 
                 </div>
               ))}
+            </div>
+
+          </div>
+        )}
+
+        {/* --- SEQUENTIAL QUEUE TAB --- */}
+        {activeTab === 'queue' && (
+          <div className="flex flex-col gap-6">
+            
+            {/* Status Card Banner */}
+            <div className={`border rounded-2xl p-6 flex flex-col sm:flex-row items-center justify-between gap-6 shadow-xl transition-all duration-300 ${
+              chainActive 
+                ? 'bg-rose-950/20 border-rose-500/30' 
+                : 'bg-slate-900 border-slate-800'
+            }`}>
+              <div className="flex items-start gap-4">
+                <div className={`p-3.5 rounded-xl shrink-0 ${
+                  chainActive ? 'bg-rose-500/10 text-rose-400' : 'bg-slate-950 text-slate-400'
+                }`}>
+                  <RefreshCw className={`w-6 h-6 ${chainActive ? 'animate-spin' : ''}`} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    Execution Chain Status: 
+                    <span className={chainActive ? 'text-rose-400' : 'text-slate-400'}>
+                      {chainActive ? 'Active & Processing' : 'Idle'}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1 max-w-xl">
+                    {chainActive 
+                      ? 'The scraper sequence is active. Jobs are running one-by-one sequentially in the order defined below, with a random 0-3 minute human-like delay between each step.'
+                      : 'The execution chain is currently paused. When triggered (either automatically by the daily schedule trigger or manually by clicking "Run Now"), the sequence will run all continuous jobs in order all the way to the end.'}
+                  </p>
+                </div>
+              </div>
+              
+              {chainActive ? (
+                <button
+                  onClick={handleStopChain}
+                  className="w-full sm:w-auto bg-rose-600 hover:bg-rose-700 text-white font-semibold px-6 py-3 rounded-xl flex items-center justify-center gap-2 transition shadow-lg shadow-rose-600/20 active:scale-95 cursor-pointer"
+                >
+                  <XCircle className="w-5 h-5" /> Interrupt Chain Execution
+                </button>
+              ) : (
+                <button
+                  onClick={async () => {
+                    const triggerJob = jobs.find(j => !j.continuous && j.enabled);
+                    if (triggerJob) {
+                      try {
+                        await fetch(`${API_BASE}/jobs/${triggerJob.id}/run`, { method: 'POST' });
+                        showFeedback('success', `Initiated scraper chain starting from trigger job ${triggerJob.name}.`);
+                        fetchJobs();
+                      } catch (err) {
+                        showFeedback('error', 'Failed to trigger.');
+                      }
+                    } else {
+                      const firstContinuous = jobs.find(j => j.continuous && j.enabled);
+                      if (firstContinuous) {
+                        try {
+                          await fetch(`${API_BASE}/jobs/${firstContinuous.id}/run`, { method: 'POST' });
+                          showFeedback('success', `Initiated scraper chain starting from ${firstContinuous.name}.`);
+                          fetchJobs();
+                        } catch (err) {
+                          showFeedback('error', 'Failed to trigger.');
+                        }
+                      } else {
+                        showFeedback('error', 'No enabled jobs found to start the execution chain.');
+                      }
+                    }
+                  }}
+                  className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-3 rounded-xl flex items-center justify-center gap-2 transition shadow-lg shadow-indigo-600/20 active:scale-95 cursor-pointer"
+                >
+                  <Play className="w-5 h-5" /> Bootstrap Chain Sequence
+                </button>
+              )}
+            </div>
+
+            {/* Split Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* Trigger configuration (left panel) */}
+              <div className="lg:col-span-1 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col gap-4">
+                <div>
+                  <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                    <Server className="w-4 h-4 text-indigo-400" />
+                    Daily Chain Trigger
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">The scheduled job that kicks off the sequential chain run daily.</p>
+                </div>
+                
+                <div className="flex flex-col gap-3">
+                  {jobs.filter(j => !j.continuous && j.enabled).length === 0 ? (
+                    <div className="bg-slate-950 border border-slate-850 p-4 rounded-xl text-center text-xs text-slate-500 border-dashed">
+                      No daily trigger jobs are currently enabled. The chain must be bootstrapped manually.
+                    </div>
+                  ) : (
+                    jobs.filter(j => !j.continuous && j.enabled).map(j => (
+                      <div key={j.id} className="bg-slate-950 border border-slate-850 p-3.5 rounded-xl flex flex-col gap-2 relative">
+                        <div className="flex justify-between items-start">
+                          <span className="text-xs font-bold text-slate-200 truncate pr-16">{j.name}</span>
+                          <span className="absolute top-3.5 right-3.5 bg-indigo-950 border border-indigo-500/30 text-indigo-300 text-[9px] font-mono px-2 py-0.5 rounded-md">
+                            {j.schedule_time}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 font-mono truncate">{j.search_url}</p>
+                        <div className="flex justify-between items-center text-[10px] border-t border-slate-900 pt-2 mt-1">
+                          <span className="text-slate-400 font-medium">Script: <code className="text-slate-300">{j.script_filename}</code></span>
+                          <span className="text-slate-400">Next Boot: <strong className="text-slate-300 font-semibold">{j.next_run ? new Date(j.next_run).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A'}</strong></span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Sequential Queue (right panel, 2 cols) */}
+              <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                      <RefreshCw className="w-4 h-4 text-indigo-400" />
+                      Continuous Sequence Chain
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Sequence order of scraper links. Use arrows to change reorder position.</p>
+                  </div>
+                  <span className="bg-slate-950 border border-slate-800 px-3 py-1 rounded-lg text-xs font-semibold text-indigo-400 font-mono">
+                    {jobs.filter(j => j.continuous && j.enabled).length} Active Links
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-2.5">
+                  {jobs.filter(j => j.continuous && j.enabled).length === 0 ? (
+                    <div className="bg-slate-950 border border-slate-850 p-8 rounded-xl text-center text-xs text-slate-500 border-dashed">
+                      No continuous jobs are currently enabled in the sequence chain. Mark jobs as continuous and enable them to populate this list.
+                    </div>
+                  ) : (
+                    jobs.filter(j => j.continuous && j.enabled).map((j, index, arr) => {
+                      const isNext = j.next_run && chainActive;
+                      const isCurrent = j.status === 'running';
+                      return (
+                        <div 
+                          key={j.id} 
+                          className={`bg-slate-950 border p-3.5 rounded-xl flex items-center justify-between gap-4 transition-all duration-200 ${
+                            isCurrent 
+                              ? 'border-emerald-500/40 bg-emerald-950/5' 
+                              : isNext 
+                                ? 'border-indigo-500/40 bg-indigo-950/5' 
+                                : 'border-slate-850'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                            {/* Sequence number */}
+                            <span className={`w-6 h-6 rounded-lg text-xs font-bold font-mono flex items-center justify-center shrink-0 ${
+                              isCurrent 
+                                ? 'bg-emerald-500 text-slate-950 animate-pulse' 
+                                : isNext 
+                                  ? 'bg-indigo-600 text-white' 
+                                  : 'bg-slate-900 text-slate-400 border border-slate-800'
+                            }`}>
+                              {index + 1}
+                            </span>
+                            
+                            <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-bold text-slate-200 truncate">{j.name}</span>
+                                {isCurrent && (
+                                  <span className="bg-emerald-950 border border-emerald-500 text-emerald-300 text-[9px] font-semibold px-2 py-0.5 rounded-full animate-pulse uppercase">
+                                    Running
+                                  </span>
+                                )}
+                                {isNext && (
+                                  <span className="bg-indigo-950 border border-indigo-500 text-indigo-300 text-[9px] font-semibold px-2 py-0.5 rounded-full uppercase">
+                                    Next Trigger
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-500 truncate font-mono">{j.search_url}</p>
+                              {isNext && (
+                                <p className="text-[9px] text-indigo-400 mt-0.5">
+                                  Running at: <strong>{new Date(j.next_run).toLocaleTimeString()}</strong>
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Reorder & Action Controls */}
+                          <div className="flex items-center gap-1 bg-slate-900/50 p-1 border border-slate-900 rounded-lg shrink-0">
+                            <button
+                              disabled={index === 0}
+                              onClick={() => handleReorderJob(index, 'up')}
+                              className={`p-1.5 rounded-md transition ${
+                                index === 0 
+                                  ? 'text-slate-700 cursor-not-allowed' 
+                                  : 'text-slate-400 hover:bg-slate-800 hover:text-white active:scale-90 cursor-pointer'
+                              }`}
+                              title="Move Up"
+                            >
+                              <ChevronUp className="w-4 h-4" />
+                            </button>
+                            <button
+                              disabled={index === arr.length - 1}
+                              onClick={() => handleReorderJob(index, 'down')}
+                              className={`p-1.5 rounded-md transition ${
+                                index === arr.length - 1 
+                                  ? 'text-slate-700 cursor-not-allowed' 
+                                  : 'text-slate-400 hover:bg-slate-800 hover:text-white active:scale-90 cursor-pointer'
+                              }`}
+                              title="Move Down"
+                            >
+                              <ChevronDown className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
             </div>
 
           </div>
