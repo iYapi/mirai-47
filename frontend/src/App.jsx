@@ -295,6 +295,7 @@ export default function App() {
             store_type
             source
             page
+            query_keyword
             scraped_at
           }
         }
@@ -1164,7 +1165,7 @@ export default function App() {
                             )}
                           </td>
                           <td className="p-3 truncate max-w-[130px] font-medium text-slate-200" title={p.store_name}>{p.store_name || '-'}</td>
-                          <td className="p-3">
+                          <td className="p-3 flex flex-wrap gap-1.5 items-center">
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase ${
                               p.source === 'shopee' 
                                 ? 'bg-indigo-950 border-indigo-500 text-indigo-300' 
@@ -1172,6 +1173,11 @@ export default function App() {
                             }`}>
                               {p.source}
                             </span>
+                            {p.query_keyword && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-slate-700 bg-slate-900 text-slate-300">
+                                🔍 {p.query_keyword}
+                              </span>
+                            )}
                           </td>
                           <td className="p-3 font-mono">{p.original_price || 'N/A'}</td>
                           <td className="p-3 font-mono text-emerald-400">{p.discount_price || '-'}</td>
@@ -1192,13 +1198,20 @@ export default function App() {
                   {products.map(p => (
                     <div key={p.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col gap-2">
                       <div className="flex items-center justify-between gap-3">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase ${
-                          p.source === 'shopee' 
-                            ? 'bg-indigo-950 border-indigo-500 text-indigo-300' 
-                            : 'bg-purple-950 border-purple-500 text-purple-300'
-                        }`}>
-                          {p.source}
-                        </span>
+                        <div className="flex flex-wrap gap-1 items-center">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase ${
+                            p.source === 'shopee' 
+                              ? 'bg-indigo-950 border-indigo-500 text-indigo-300' 
+                              : 'bg-purple-950 border-purple-500 text-purple-300'
+                          }`}>
+                            {p.source}
+                          </span>
+                          {p.query_keyword && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-slate-700 bg-slate-900 text-slate-300">
+                              🔍 {p.query_keyword}
+                            </span>
+                          )}
+                        </div>
                         <span className="text-[10px] text-slate-400 font-mono">{new Date(p.scraped_at).toLocaleDateString()}</span>
                       </div>
                       <h4 className="font-bold text-white text-sm line-clamp-2">

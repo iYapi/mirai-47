@@ -25,6 +25,7 @@ class Product:
     store_type: Optional[str]
     source: Optional[str]
     page: Optional[int]
+    query_keyword: Optional[str]
     scraped_at: str
 
 @strawberry.type
@@ -100,6 +101,7 @@ class Query:
                         store_type=r.get("store_type"),
                         source=r.get("source"),
                         page=r.get("page"),
+                        query_keyword=r.get("query_keyword"),
                         scraped_at=sa_str
                     )
                 )

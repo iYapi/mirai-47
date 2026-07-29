@@ -155,6 +155,7 @@ class PostgresClient:
             raw_data->>'store_type' AS store_type,
             raw_data->>'source' AS source,
             (raw_data->>'page')::integer AS page,
+            raw_data->>'query_keyword' AS query_keyword,
             timestamp AS scraped_at
         FROM raw_scrapes 
         WHERE 1=1
