@@ -7,6 +7,7 @@ import threading
 import subprocess
 import random
 from datetime import datetime, timedelta
+from typing import Optional
 from sqlalchemy.orm import Session
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -222,27 +223,7 @@ def finish_run(db: Session, job_id: int, run_id: str, status: str, count: int, l
         
         if job.enabled:
             if job.continuous:
-                next_run_time = datetime.now() + timedelta(seconds=10)
-                job_id_str = f"job_{job.id}"
-                try:
-                    if scheduler.get_job(job_id_str):
-                        scheduler.remove_job(job_id_str)
-                except Exception:
-                    pass
-                try:
-                    scheduler.add_job(
-                        run_job_wrapper,
-                        trigger='date',
-                        run_date=next_run_time,
-                        args=[job.id],
-                        id=job_id_str,
-                        replace_existing=True
-                    )
-                    job.next_run = next_run_time
-                    db.commit()
-                    print(f"Continuous job '{job.name}' rescheduled for next run at {next_run_time}")
-                except Exception as e:
-                    print(f"Failed to reschedule continuous job '{job.name}': {e}")
+                trigger_next_continuous_job(completed_job_id=job_id)
             elif job.schedule_time and "-" in job.schedule_time:
                 # Reschedule next random time if it's a range schedule
                 add_or_update_scheduler_job(job)
@@ -302,9 +283,98 @@ def calculate_next_random_run(schedule_time: str) -> datetime:
             
         return target_time
     except Exception as e:
-        print(f"Error calculating next random run for '{schedule_time}': {e}")
         now = datetime.now()
         return (now + timedelta(days=1)).replace(hour=1, minute=0, second=0, microsecond=0)
+
+def trigger_next_continuous_job(completed_job_id: Optional[int] = None, startup_bootstrap: bool = False):
+    """
+    Selects the next enabled continuous scraper job and schedules it to run.
+    Enforces sequential execution: only one continuous job runs at a time.
+    Adds a random delay of 0 to 3 minutes (0-180 seconds) before the next run.
+    """
+    import random
+    db = SessionLocal()
+    try:
+        continuous_jobs = db.query(ScraperJob).filter(
+            ScraperJob.continuous == True,
+            ScraperJob.enabled == True
+        ).order_by(ScraperJob.id).all()
+
+        if not continuous_jobs:
+            # Clear next_run for any non-enabled continuous jobs
+            db_jobs = db.query(ScraperJob).filter(ScraperJob.continuous == True).all()
+            for dj in db_jobs:
+                if dj.next_run is not None:
+                    dj.next_run = None
+            db.commit()
+            return
+
+        # Find the next job in the loop
+        next_job = None
+        if completed_job_id is not None:
+            completed_index = -1
+            for idx, job in enumerate(continuous_jobs):
+                if job.id == completed_job_id:
+                    completed_index = idx
+                    break
+            
+            if completed_index != -1:
+                next_index = (completed_index + 1) % len(continuous_jobs)
+                next_job = continuous_jobs[next_index]
+            else:
+                next_job = continuous_jobs[0]
+        else:
+            # Check if any continuous job is already scheduled next
+            already_scheduled = False
+            for job in continuous_jobs:
+                job_id_str = f"job_{job.id}"
+                if scheduler.get_job(job_id_str):
+                    already_scheduled = True
+                    break
+            if already_scheduled:
+                print("A continuous job is already scheduled next. Skipping bootstrap.")
+                return
+            next_job = continuous_jobs[0]
+
+        # 5 seconds for startup/manual boots, 0-180 seconds for loop iterations
+        if startup_bootstrap:
+            delay_seconds = 5
+        else:
+            delay_seconds = random.randint(0, 180)
+
+        next_run_time = datetime.now() + timedelta(seconds=delay_seconds)
+        job_id_str = f"job_{next_job.id}"
+
+        # Clear existing scheduled runs for all continuous jobs to keep only one active trigger
+        for job in continuous_jobs:
+            j_id_str = f"job_{job.id}"
+            try:
+                if scheduler.get_job(j_id_str):
+                    scheduler.remove_job(j_id_str)
+            except Exception:
+                pass
+            job.next_run = None
+        
+        # Schedule the next job
+        try:
+            scheduler.add_job(
+                run_job_wrapper,
+                trigger='date',
+                run_date=next_run_time,
+                args=[next_job.id],
+                id=job_id_str,
+                replace_existing=True
+            )
+            next_job.next_run = next_run_time
+            db.commit()
+            print(f"Scheduled next continuous job '{next_job.name}' (ID: {next_job.id}) in {delay_seconds} seconds (at {next_run_time})")
+        except Exception as e:
+            print(f"Error scheduling continuous job {next_job.name}: {e}")
+
+    except Exception as e:
+        print(f"Error inside trigger_next_continuous_job: {e}")
+    finally:
+        db.close()
 
 def add_or_update_scheduler_job(job: ScraperJob):
     """Dynamically schedule or update a job in APScheduler (supports specific HH:MM or range HH:MM-HH:MM)."""
@@ -320,26 +390,7 @@ def add_or_update_scheduler_job(job: ScraperJob):
         return
 
     if job.continuous:
-        next_run_time = datetime.now() + timedelta(seconds=5)
-        try:
-            scheduler.add_job(
-                run_job_wrapper,
-                trigger='date',
-                run_date=next_run_time,
-                args=[job.id],
-                id=job_id_str,
-                replace_existing=True
-            )
-            print(f"Scheduled continuous job '{job.name}' to start in 5 seconds.")
-            
-            db = SessionLocal()
-            db_job = db.query(ScraperJob).filter(ScraperJob.id == job.id).first()
-            if db_job:
-                db_job.next_run = next_run_time
-                db.commit()
-            db.close()
-        except Exception as e:
-            print(f"Failed to schedule continuous job '{job.name}': {e}")
+        trigger_next_continuous_job(startup_bootstrap=True)
         return
 
     if not job.schedule_time:
@@ -388,10 +439,23 @@ def add_or_update_scheduler_job(job: ScraperJob):
 def remove_scheduler_job(job_id: int):
     """Remove a job from APScheduler."""
     job_id_str = f"job_{job_id}"
+    is_continuous = False
+    db = SessionLocal()
+    try:
+        db_job = db.query(ScraperJob).filter(ScraperJob.id == job_id).first()
+        if db_job:
+            is_continuous = db_job.continuous
+    except Exception:
+        pass
+    finally:
+        db.close()
+
     try:
         if scheduler.get_job(job_id_str):
             scheduler.remove_job(job_id_str)
             print(f"Removed job {job_id_str} from scheduler")
+            if is_continuous:
+                trigger_next_continuous_job(completed_job_id=job_id, startup_bootstrap=True)
     except Exception as e:
         print(f"Error removing job {job_id_str}: {e}")
 
@@ -404,9 +468,12 @@ def start_scheduler():
     db = SessionLocal()
     try:
         jobs = db.query(ScraperJob).all()
+        # Non-continuous jobs scheduled first
         for job in jobs:
-            if job.enabled:
+            if job.enabled and not job.continuous:
                 add_or_update_scheduler_job(job)
+        # Bootstrap continuous loop sequence
+        trigger_next_continuous_job(startup_bootstrap=True)
     except Exception as e:
         print(f"Error scheduling active jobs on startup: {e}")
     finally:
