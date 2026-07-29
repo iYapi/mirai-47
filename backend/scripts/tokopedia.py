@@ -1,5 +1,5 @@
 """
-Script Tokopedia Scraper dengan Sistem Persistent Browser (Login Akun) & Scheduler.
+Script Tokopedia Scraper dengan Undetected ChromeDriver (Evasion Captcha/Bot Detection) & Scheduler.
 Adaptasi untuk scraping dashboard manager.
 """
 
@@ -9,35 +9,57 @@ import json
 import time
 import random
 import argparse
+import subprocess
+import re
 import platform
 from datetime import datetime
-from playwright.sync_api import sync_playwright
+from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 
-def get_user_agent() -> str:
-    """Mengembalikan User-Agent yang sesuai dengan platform OS untuk menghindari deteksi/captcha."""
-    system = platform.system()
-    if system == "Darwin":  # macOS
-        return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    elif system == "Windows":
-        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    else:  # Linux (Zorin OS, Ubuntu, etc.)
-        return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+def get_chrome_major_version() -> int | None:
+    """Deteksi versi major dari Google Chrome yang terpasang di macOS atau Linux."""
+    try:
+        if platform.system() == "Darwin":
+            output = subprocess.check_output([
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "--version"
+            ]).decode("utf-8")
+        else:  # Linux / Zorin OS
+            try:
+                output = subprocess.check_output(["google-chrome", "--version"]).decode("utf-8")
+            except Exception:
+                output = subprocess.check_output(["google-chrome-stable", "--version"]).decode("utf-8")
+        
+        match = re.search(r"Google Chrome (\d+)", output)
+        if match:
+            version = int(match.group(1))
+            print(f"Terdeteksi versi Google Chrome utama: {version}")
+            return version
+    except Exception as e:
+        print(f"Gagal mendeteksi versi Google Chrome secara otomatis: {e}")
+    return None
+
+def clear_chrome_lock(profile_path: str):
+    """Menghapus file lock Chromium jika ada untuk mencegah error 'chrome not reachable'."""
+    lock_file = os.path.join(profile_path, "SingletonLock")
+    if os.path.exists(lock_file) or os.path.islink(lock_file):
+        try:
+            os.unlink(lock_file)
+            print("Berhasil menghapus file SingletonLock yang menggantung.")
+        except Exception as e:
+            print(f"Gagal menghapus SingletonLock: {e}")
 
 # ------------------ CONFIG ------------------
 SEARCH_URL = "https://www.tokopedia.com/search?navsource=home&q=rtx+3050&source=universe&st=product"
 MAX_PAGES = 3
-USER_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tokopedia_profile")
+USER_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tokopedia_profile_uc")
 # --------------------------------------------
 
-# Selector Tokopedia terkini
 PRODUCT_CARD_SELECTOR = "div[data-testid='divSRPContentProducts'] > div > div > div"
-NAME_SELECTOR = "span[class*='tnoqZ'], div[class*='SzILj'] span"
-PRICE_SELECTOR = "div[class*='urMOI']"
-ORIGINAL_PRICE_SELECTOR = "div[class*='e48Km'] span, span[class*='hC1B']"
-DISCOUNT_PERCENT_SELECTOR = "span[class*='_7UCYd']"
-RATING_SELECTOR = "span[class*='_2NfJx']"
-SOLD_SELECTOR = "span[class*='u6Sfj']"
-SHOP_BADGE_SELECTOR = "img[alt='shop badge']"
+NAME_SELECTOR = "span[class*='tnoqZ'], div[class*='SzILj'] span, [data-testid='spnSRPProdName']"
 
 def clean_price(price_raw: str | None) -> int | None:
     """Ubah 'Rp1.250.000' jadi 1250000 (integer)."""
@@ -60,7 +82,7 @@ def clean_sold_count(sold_raw: str | None) -> int | None:
     if not sold_raw:
         return None
     s = sold_raw.lower().strip()
-    s = s.replace("terjual", "").replace("+", "").strip()
+    s = s.replace("terjual", "").replace("+", "").replace("sold", "").strip()
     
     multiplier = 1
     if "rb" in s or "k" in s:
@@ -74,72 +96,56 @@ def clean_sold_count(sold_raw: str | None) -> int | None:
     except (ValueError, IndexError):
         return None
 
-def scroll_to_bottom(page, card_selector: str, name_selector: str, btn_selector: str):
-    """Scroll ke bawah terus menerus dengan jeda acak sampai tombol 'Muat Lebih Banyak' terlihat atau tidak ada produk baru yang dimuat."""
-    page.mouse.move(500, 500)
-    time.sleep(0.5)
-    
-    last_count = 0
-    same_count_limit = 10
-    same_count_runs = 0
-    scroll_idx = 1
-    
-    while True:
-        btn = page.query_selector(btn_selector)
-        if btn and btn.is_visible():
-            print(f"  [Scroll {scroll_idx}] Tombol 'Muat Lebih Banyak' terdeteksi aktif. Berhenti scrolling.")
+def get_tokopedia_page_url(url: str, page_num: int) -> str:
+    """Tambahkan atau perbarui parameter query 'page' pada URL Tokopedia (1-indexed)."""
+    parsed = urlparse(url)
+    query_params = parse_qs(parsed.query)
+    query_params["page"] = [str(page_num)]
+    new_query = urlencode(query_params, doseq=True)
+    new_parts = list(parsed)
+    new_parts[4] = new_query
+    return urlunparse(new_parts)
+
+def scroll_to_bottom(driver, card_selector: str, name_selector: str, expected_count: int = 40, max_scrolls: int = 15, scroll_delay: float = 1.2):
+    """Scroll ke bawah secara perlahan untuk memicu lazy loading produk di Tokopedia menggunakan Selenium."""
+    for idx in range(1, max_scrolls + 1):
+        names = driver.find_elements(By.CSS_SELECTOR, f"{card_selector} {name_selector}")
+        loaded_count = sum(1 for n in names if n.text.strip())
+        
+        print(f"  [Scroll {idx}/{max_scrolls}] Kartu termuat: {loaded_count}")
+        
+        if loaded_count >= expected_count:
             break
             
-        page.mouse.wheel(0, 1000)
-        page.keyboard.press("PageDown")
-        
-        delay = random.uniform(1.2, 2.6)
-        time.sleep(delay)
-        
-        cards = page.query_selector_all(card_selector)
-        loaded_cards = [c for c in cards if c.query_selector(name_selector)]
-        current_count = len(loaded_cards)
-        
-        print(f"  [Scroll {scroll_idx}] Kartu terdeteksi: {len(cards)}, Kartu termuat: {current_count} (Jeda scroll: {delay:.2f}s)")
-        
-        if current_count > last_count:
-            last_count = current_count
-            same_count_runs = 0
-        else:
-            same_count_runs += 1
-            
-        if same_count_runs >= same_count_limit:
-            print(f"  [Scroll {scroll_idx}] Tidak ada produk baru termuat setelah {same_count_limit} kali scroll. Ujung halaman tercapai.")
-            break
-            
-        scroll_idx += 1
+        driver.execute_script("window.scrollBy(0, 800);")
+        time.sleep(scroll_delay + random.uniform(-0.2, 0.3))
 
 def manual_login():
-    """Membuka browser headed agar user bisa masuk/login ke akun Tokopedia secara manual."""
-    print("\n=================== MODE LOGIN MANUAL ===================")
-    print("Membuka browser Tokopedia dengan profil persistent...")
+    """Membuka browser Chrome asli headed agar user bisa masuk/login ke akun Tokopedia secara manual."""
+    print("\n=================== MODE LOGIN MANUAL TOKOPEDIA (UC) ===================")
+    print("Membuka browser Google Chrome dengan undetected-chromedriver...")
     print("1. Silakan login ke akun Tokopedia Anda secara manual di jendela browser yang terbuka.")
     print("2. Setelah sukses masuk/login, kembali ke terminal ini.")
     print("3. Tekan [ENTER] di terminal ini untuk menutup browser dan menyimpan sesi Anda.")
-    print("=========================================================\n")
+    print("========================================================================\n")
     
     abs_profile_path = os.path.abspath(USER_DATA_DIR)
     os.makedirs(abs_profile_path, exist_ok=True)
+    clear_chrome_lock(abs_profile_path)
     
-    with sync_playwright() as p:
-        context = p.chromium.launch_persistent_context(
-            user_data_dir=abs_profile_path,
-            headless=False,
-            args=["--disable-http2", "--disable-blink-features=AutomationControlled"],
-            ignore_default_args=["--enable-automation"],
-            user_agent=get_user_agent()
-        )
-        page = context.pages[0] if context.pages else context.new_page()
-        page.goto("https://www.tokopedia.com")
-        
-        input("\nTekan [ENTER] di sini setelah Anda selesai login...")
-        context.close()
-        print("\nSesi login berhasil disimpan ke:", abs_profile_path)
+    options = uc.ChromeOptions()
+    options.add_argument("--disable-http2")
+    
+    chrome_version = get_chrome_major_version()
+    if chrome_version:
+        driver = uc.Chrome(options=options, user_data_dir=abs_profile_path, version_main=chrome_version)
+    else:
+        driver = uc.Chrome(options=options, user_data_dir=abs_profile_path)
+    driver.get("https://www.tokopedia.com")
+    
+    input("\nTekan [ENTER] di sini setelah Anda selesai login...")
+    driver.quit()
+    print("\nSesi login Tokopedia berhasil disimpan ke:", abs_profile_path)
 
 def scrape_tokopedia(base_url: str, max_pages: int, run_headless: bool) -> list[dict]:
     results = []
@@ -147,126 +153,138 @@ def scrape_tokopedia(base_url: str, max_pages: int, run_headless: bool) -> list[
 
     abs_profile_path = os.path.abspath(USER_DATA_DIR)
     print(f"Menggunakan profil login dari: {abs_profile_path}")
+    clear_chrome_lock(abs_profile_path)
     
-    with sync_playwright() as p:
-        launch_args = ["--disable-http2", "--disable-blink-features=AutomationControlled"]
-        if run_headless:
-            launch_args.append("--headless=new")
-            
-        context = p.chromium.launch_persistent_context(
-            user_data_dir=abs_profile_path,
-            headless=False,  # Harus False untuk --headless=new di Chromium asli
-            args=launch_args,
-            ignore_default_args=["--enable-automation"],
-            user_agent=get_user_agent()
-        )
+    options = uc.ChromeOptions()
+    options.add_argument("--disable-http2")
+    if run_headless:
+        options.add_argument("--headless")
         
-        page = context.pages[0] if context.pages else context.new_page()
-
-        print(f"Membuka halaman: {base_url}")
-        try:
-            page.goto(base_url, timeout=30000)
-        except Exception as e:
-            print(f"Gagal memuat halaman utama: {e}")
-            context.close()
-            return results
-
-        container_selector = "div[data-testid='divSRPContentProducts']"
-        try:
-            page.wait_for_selector(container_selector, timeout=15000)
-        except Exception:
-            print("Kontainer produk tidak ditemukan. Mengakhiri pencarian.")
-            context.close()
-            return results
-
-        for loop_idx in range(1, max_pages + 1):
-            print(f"\n[Iterasi {loop_idx}/{max_pages}] Memproses pemuatan dan scrolling produk...")
+    chrome_version = get_chrome_major_version()
+    if chrome_version:
+        driver = uc.Chrome(options=options, user_data_dir=abs_profile_path, version_main=chrome_version)
+    else:
+        driver = uc.Chrome(options=options, user_data_dir=abs_profile_path)
+        
+    try:
+        for page_idx in range(1, max_pages + 1):
+            url = get_tokopedia_page_url(base_url, page_idx)
+            print(f"\n[Iterasi {page_idx}/{max_pages}] Membuka halaman: {url}")
             
-            btn_selector = 'button:has-text("Muat Lebih Banyak")'
-            scroll_to_bottom(page, PRODUCT_CARD_SELECTOR, NAME_SELECTOR, btn_selector)
+            try:
+                driver.get(url)
+            except Exception as e:
+                print(f"Gagal memuat halaman utama: {e}")
+                break
 
-            cards = page.query_selector_all(PRODUCT_CARD_SELECTOR)
+            try:
+                WebDriverWait(driver, 15).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-testid='divSRPContentProducts']"))
+                )
+            except Exception:
+                print("Kontainer produk tidak ditemukan. Mengakhiri pencarian.")
+                break
+
+            print("Memproses pemuatan dan scrolling produk...")
+            scroll_to_bottom(driver, PRODUCT_CARD_SELECTOR, NAME_SELECTOR)
+
+            # Ambil semua data produk menggunakan execute_script agar jauh lebih cepat & aman
+            js_script = """
+            const cards = Array.from(document.querySelectorAll("div[data-testid='divSRPContentProducts'] > div > div > div"));
+            return cards.map(card => {
+                const nameEl = card.querySelector("span[class*='tnoqZ'], div[class*='SzILj'] span, [data-testid='spnSRPProdName']");
+                const priceEl = card.querySelector("div[class*='urMOI'], [data-testid='spnSRPProdPrice']");
+                const origPriceEl = card.querySelector("div[class*='e48Km'] span, span[class*='hC1B']");
+                const discountPctEl = card.querySelector("span[class*='_7UCYd']");
+                const ratingEl = card.querySelector("span[class*='_2NfJx']");
+                const soldEl = card.querySelector("span[class*='u6Sfj']");
+                const badgeEl = card.querySelector("img[alt='shop badge'], img[src*='official_store'], img[src*='goldmerchant'], img[src*='power_merchant']");
+                
+                // Store/shop selectors
+                const shopLinkEl = card.querySelector("a[data-testid='shopLink'], a[href*='/tokopedia.com/']");
+                const shopLocEl = card.querySelector("span[data-testid='spnSRPProdTabShopLoc'], span[data-testid='spnSRPProdLoc']");
+                
+                let storeName = shopLinkEl ? shopLinkEl.textContent.trim() : null;
+                let storeLocation = shopLocEl ? shopLocEl.textContent.trim() : null;
+                
+                if (!storeName || !storeLocation) {
+                    const spans = Array.from(card.querySelectorAll("span[class*='flip']"));
+                    if (spans.length >= 2) {
+                        if (!storeName) storeName = spans[0].textContent.trim();
+                        if (!storeLocation) storeLocation = spans[1].textContent.trim();
+                    } else if (spans.length === 1) {
+                        if (!storeName) storeName = spans[0].textContent.trim();
+                    }
+                }
+                
+                if (!storeName) {
+                    const storeEl = card.querySelector("span[class*='si3CN']");
+                    if (storeEl) storeName = storeEl.textContent.trim();
+                }
+                
+                const linkEl = card.querySelector('a');
+                const href = linkEl ? linkEl.getAttribute('href') : null;
+                const name = nameEl ? nameEl.textContent.trim() : null;
+                
+                let badgeUrl = badgeEl ? badgeEl.getAttribute("src") || "" : "";
+                
+                return {
+                    href,
+                    name,
+                    activePrice: priceEl ? priceEl.textContent.trim() : null,
+                    origPrice: origPriceEl ? origPriceEl.textContent.trim() : null,
+                    pctText: discountPctEl ? discountPctEl.textContent.trim() : null,
+                    rating: ratingEl ? ratingEl.textContent.trim() : null,
+                    soldText: soldEl ? soldEl.textContent.trim() : null,
+                    storeName,
+                    storeLocation,
+                    badgeUrl
+                };
+            });
+            """
+            
+            cards_data = driver.execute_script(js_script)
             new_cards_count = 0
-
-            for card in cards:
+            
+            for item in cards_data:
                 try:
-                    link_el = card.query_selector("a")
-                    product_url = link_el.get_attribute("href") if link_el else None
-                    
+                    product_url = item.get("href")
+                    product_name = item.get("name")
+                    if not product_name:
+                        continue
+                        
                     clean_url_route = None
                     if product_url:
                         clean_url = product_url.split("?")[0]
                         if clean_url in scraped_urls:
                             continue
                         scraped_urls.add(clean_url)
-                        from urllib.parse import urlparse
-                        clean_url_route = urlparse(clean_url).path
+                        
+                        parsed_uri = urlparse(clean_url)
+                        clean_url_route = parsed_uri.path
                     else:
-                        name_el = card.query_selector(NAME_SELECTOR)
-                        fallback_name = name_el.inner_text().strip() if name_el else None
-                        if not fallback_name or fallback_name in scraped_urls:
+                        if product_name in scraped_urls:
                             continue
-                        scraped_urls.add(fallback_name)
+                        scraped_urls.add(product_name)
 
-                    name_el = card.query_selector(NAME_SELECTOR)
-                    price_el = card.query_selector(PRICE_SELECTOR)
-                    orig_price_el = card.query_selector(ORIGINAL_PRICE_SELECTOR)
-                    discount_pct_el = card.query_selector(DISCOUNT_PERCENT_SELECTOR)
-                    rating_el = card.query_selector(RATING_SELECTOR)
-                    sold_el = card.query_selector(SOLD_SELECTOR)
-                    badge_el = card.query_selector(SHOP_BADGE_SELECTOR)
-
-                    product_name = name_el.inner_text().strip() if name_el else None
-                    active_price_raw = price_el.inner_text().strip() if price_el else None
-                    slashed_price_raw = orig_price_el.inner_text().strip() if orig_price_el else None
-                    discount_percentage = discount_pct_el.inner_text().strip() if discount_pct_el else None
-                    rating = rating_el.inner_text().strip() if rating_el else None
-                    sold_count = sold_el.inner_text().strip() if sold_el else None
-
-                    if slashed_price_raw:
-                        original_price = slashed_price_raw
-                        discount_price = active_price_raw
-                    else:
-                        original_price = active_price_raw
+                    original_price = item.get("origPrice")
+                    discount_price = item.get("activePrice")
+                    discount_percentage = item.get("pctText")
+                    rating = item.get("rating")
+                    sold_count = item.get("soldText")
+                    store_name = item.get("storeName")
+                    store_location = item.get("storeLocation")
+                    badge_url = item.get("badgeUrl") or ""
+                    
+                    if not original_price:
+                        original_price = discount_price
                         discount_price = None
 
-                    store_name = None
-                    store_location = None
-                    
-                    # 1. Try to find shop name and location via test-ids (most reliable Tokopedia attributes)
-                    shop_link_el = card.query_selector("a[data-testid='shopLink'], a[href*='/tokopedia.com/']")
-                    if shop_link_el:
-                        store_name = shop_link_el.inner_text().strip()
-                    
-                    shop_loc_el = card.query_selector("span[data-testid='spnSRPProdTabShopLoc'], span[data-testid='spnSRPProdLoc']")
-                    if shop_loc_el:
-                        store_location = shop_loc_el.inner_text().strip()
-                        
-                    # 2. Try class patterns if test-ids are empty
-                    if not store_name or not store_location:
-                        spans = card.query_selector_all("span[class*='flip']")
-                        if len(spans) >= 2:
-                            if not store_name:
-                                store_name = spans[0].inner_text().strip()
-                            if not store_location:
-                                store_location = spans[1].inner_text().strip()
-                        elif len(spans) == 1:
-                            if not store_name:
-                                store_name = spans[0].inner_text().strip()
-                                
-                    # 3. Additional fallback for class si3CN
-                    if not store_name:
-                        store_el = card.query_selector("span[class*='si3CN']")
-                        if store_el:
-                            store_name = store_el.inner_text().strip()
-
                     store_type = "Regular Merchant"
-                    if badge_el:
-                        badge_url = badge_el.get_attribute("src") or ""
-                        if "official_store" in badge_url or "badge_os" in badge_url:
-                            store_type = "Official Store"
-                        elif "goldmerchant" in badge_url or "power_merchant" in badge_url:
-                            store_type = "Power Merchant"
+                    if "official_store" in badge_url or "badge_os" in badge_url:
+                        store_type = "Official Store"
+                    elif "goldmerchant" in badge_url or "power_merchant" in badge_url:
+                        store_type = "Power Merchant"
 
                     results.append({
                         "url": clean_url_route,
@@ -284,7 +302,7 @@ def scrape_tokopedia(base_url: str, max_pages: int, run_headless: bool) -> list[
                         "store_location": store_location,
                         "store_type": store_type,
                         "source": "tokopedia",
-                        "page": loop_idx,
+                        "page": page_idx,
                         "scraped_at": datetime.now().isoformat(),
                     })
                     new_cards_count += 1
@@ -293,65 +311,27 @@ def scrape_tokopedia(base_url: str, max_pages: int, run_headless: bool) -> list[
                     continue
 
             print(f"Berhasil memproses {new_cards_count} produk baru pada segmen ini. (Total: {len(results)})")
-
             if new_cards_count == 0:
                 print("Tidak ada produk baru ditemukan. Berhenti.")
                 break
-
-            if loop_idx >= max_pages:
-                break
-
-            btn_selector = 'button:has-text("Muat Lebih Banyak")'
-            btn = page.query_selector(btn_selector)
-            if not btn:
-                page.mouse.wheel(0, 500)
-                time.sleep(1.0)
-                btn = page.query_selector(btn_selector)
-
-            if btn and btn.is_visible():
-                print("Menemukan tombol 'Muat Lebih Banyak'. Melakukan klik...")
-                try:
-                    btn.scroll_into_view_if_needed()
-                    time.sleep(1.0)
-                    btn.click()
-                    
-                    delay = random.uniform(3.0, 7.0)
-                    print(f"Klik berhasil. Menunggu {delay:.2f} detik...")
-                    time.sleep(delay)
-                except Exception as e:
-                    print(f"Gagal mengklik tombol: {e}. Berhenti.")
-                    break
-            else:
-                break
-
-        context.close()
-
+                
+    except Exception as e:
+        print(f"Error scraping Tokopedia: {e}")
+    finally:
+        driver.quit()
+        
     return results
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Tokopedia Scraper CLI")
-    parser.add_argument("--url", type=str, default=SEARCH_URL, help="URL pencarian Tokopedia")
-    parser.add_argument("--pages", type=int, default=MAX_PAGES, help="Jumlah halaman pencarian Tokopedia")
-    parser.add_argument("--headless", action="store_true", help="Jalankan headless")
-    parser.add_argument("--output", type=str, default="tokopedia_result.json", help="File output JSON")
-    parser.add_argument("--login", action="store_true", help="Jalankan manual login browser")
-
+    parser.add_argument("--url", type=str, default=SEARCH_URL, help="Target search URL")
+    parser.add_argument("--pages", type=int, default=MAX_PAGES, help="Max pages to scrape")
+    parser.add_argument("--headless", action="store_true", help="Run in headless mode")
+    parser.add_argument("--login", action="store_true", help="Run headed login session only")
     args = parser.parse_args()
 
     if args.login:
         manual_login()
     else:
-        print(f"Starting Tokopedia Scraper...")
-        print(f"Target URL: {args.url}")
-        print(f"Pages: {args.pages}")
-        print(f"Headless Mode: {args.headless}")
-        print(f"Output: {args.output}")
-
-        try:
-            data = scrape_tokopedia(args.url, args.pages, run_headless=args.headless)
-            with open(args.output, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            print(f"Scraping successfully finished. {len(data)} items saved.")
-        except Exception as e:
-            print(f"Execution Error: {e}", file=sys.stderr)
-            sys.exit(1)
+        results = scrape_tokopedia(args.url, args.pages, args.headless)
+        print(json.dumps(results, indent=2))
