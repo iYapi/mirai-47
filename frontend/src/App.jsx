@@ -266,7 +266,7 @@ export default function App() {
         $sortBy: String!
         $sortOrder: String!
       ) {
-        getProducts(
+        get_products(
           limit: $limit
           offset: $offset
           source: $source
@@ -325,7 +325,7 @@ export default function App() {
         return;
       }
       
-      const data = resData.data.getProducts;
+      const data = resData.data.get_products;
       setProducts(data.products || []);
       setProductsCount(data.total || 0);
     } catch (err) {
