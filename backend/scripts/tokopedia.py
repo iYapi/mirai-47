@@ -9,8 +9,19 @@ import json
 import time
 import random
 import argparse
+import platform
 from datetime import datetime
 from playwright.sync_api import sync_playwright
+
+def get_user_agent() -> str:
+    """Mengembalikan User-Agent yang sesuai dengan platform OS untuk menghindari deteksi/captcha."""
+    system = platform.system()
+    if system == "Darwin":  # macOS
+        return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    elif system == "Windows":
+        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    else:  # Linux (Zorin OS, Ubuntu, etc.)
+        return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 # ------------------ CONFIG ------------------
 SEARCH_URL = "https://www.tokopedia.com/search?navsource=home&q=rtx+3050&source=universe&st=product"
@@ -121,7 +132,7 @@ def manual_login():
             headless=False,
             args=["--disable-http2", "--disable-blink-features=AutomationControlled"],
             ignore_default_args=["--enable-automation"],
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            user_agent=get_user_agent()
         )
         page = context.pages[0] if context.pages else context.new_page()
         page.goto("https://www.tokopedia.com")
@@ -147,7 +158,7 @@ def scrape_tokopedia(base_url: str, max_pages: int, run_headless: bool) -> list[
             headless=False,  # Harus False untuk --headless=new di Chromium asli
             args=launch_args,
             ignore_default_args=["--enable-automation"],
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            user_agent=get_user_agent()
         )
         
         page = context.pages[0] if context.pages else context.new_page()
