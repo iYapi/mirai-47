@@ -106,19 +106,50 @@ def get_tokopedia_page_url(url: str, page_num: int) -> str:
     new_parts[4] = new_query
     return urlunparse(new_parts)
 
-def scroll_to_bottom(driver, card_selector: str, name_selector: str, expected_count: int = 40, max_scrolls: int = 15, scroll_delay: float = 1.2):
-    """Scroll ke bawah secara perlahan untuk memicu lazy loading produk di Tokopedia menggunakan Selenium."""
-    for idx in range(1, max_scrolls + 1):
+def scroll_to_bottom(driver, card_selector: str, name_selector: str, scroll_delay: float = 1.0):
+    """Scroll ke bawah secara berulang sampai tombol 'Muat Lebih Banyak' terlihat atau mencapai dasar halaman."""
+    print("  Memulai scroll pencarian untuk memuat seluruh kartu produk...")
+    scrolls = 0
+    max_scrolls = 60  # safety limit to prevent infinite loops
+    last_height = driver.execute_script("return document.body.scrollHeight")
+    same_height_count = 0
+
+    while scrolls < max_scrolls:
+        # Check if "Muat Lebih Banyak" button is visible
+        buttons = driver.find_elements(By.XPATH, "//button[contains(., 'Muat Lebih Banyak')] | //button//*[contains(text(), 'Muat Lebih Banyak')]")
+        button_visible = False
+        for btn in buttons:
+            try:
+                if btn.is_displayed():
+                    button_visible = True
+                    break
+            except Exception:
+                pass
+
+        if button_visible:
+            print(f"  [Scroll {scrolls}] Tombol 'Muat Lebih Banyak' telah terdeteksi. Berhenti scroll.")
+            break
+
+        # Scroll down
+        driver.execute_script("window.scrollBy(0, 800);")
+        scrolls += 1
+        time.sleep(scroll_delay + random.uniform(0.1, 0.4))
+
+        # Check if reached absolute bottom of the page
+        new_height = driver.execute_script("return document.body.scrollHeight")
+        if new_height == last_height:
+            same_height_count += 1
+            if same_height_count >= 5:  # Checked 5 times after scrolling and height did not change
+                print(f"  [Scroll {scrolls}] Telah mencapai batas bawah halaman (tidak ada konten baru). Berhenti scroll.")
+                break
+        else:
+            same_height_count = 0
+            last_height = new_height
+
+        # Print progress
         names = driver.find_elements(By.CSS_SELECTOR, f"{card_selector} {name_selector}")
         loaded_count = sum(1 for n in names if n.text.strip())
-        
-        print(f"  [Scroll {idx}/{max_scrolls}] Kartu termuat: {loaded_count}")
-        
-        if loaded_count >= expected_count:
-            break
-            
-        driver.execute_script("window.scrollBy(0, 800);")
-        time.sleep(scroll_delay + random.uniform(-0.2, 0.3))
+        print(f"  [Scroll {scrolls}] Kartu termuat: {loaded_count}")
 
 def manual_login():
     """Membuka browser Chrome asli headed agar user bisa masuk/login ke akun Tokopedia secara manual."""
