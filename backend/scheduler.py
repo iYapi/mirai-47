@@ -223,12 +223,12 @@ def finish_run(db: Session, job_id: int, run_id: str, status: str, count: int, l
         job.status = "idle"
         db.commit()
         
-        if job.enabled:
-            if job.continuous:
-                trigger_next_continuous_job(completed_job_id=job_id)
-            elif job.schedule_time and "-" in job.schedule_time:
-                # Reschedule next random time if it's a range schedule
-                add_or_update_scheduler_job(job)
+        if chain_active:
+            trigger_next_continuous_job(completed_job_id=job_id)
+            
+        if job.enabled and job.schedule_time and "-" in job.schedule_time:
+            # Reschedule next random time if it's a range schedule
+            add_or_update_scheduler_job(job)
 
     log_text = "\n".join(logs)
     job_log = JobLog(
@@ -416,18 +416,28 @@ def trigger_next_continuous_job(completed_job_id: int):
         continuous_jobs = db.query(ScraperJob).filter(
             ScraperJob.continuous == True,
             ScraperJob.enabled == True
-        ).order_by(ScraperJob.id).all()
+        ).order_by(ScraperJob.position.asc()).all()
 
         if not continuous_jobs:
             chain_active = False
             return
 
-        # Find the next continuous job in the chain (first continuous job with ID > completed_job_id)
-        next_job = None
-        for job in continuous_jobs:
-            if job.id > completed_job_id:
-                next_job = job
+        # Find the index of the completed job in the current ordered sequence
+        completed_index = -1
+        for idx, job in enumerate(continuous_jobs):
+            if job.id == completed_job_id:
+                completed_index = idx
                 break
+
+        # If completed job is not in the continuous list (e.g. it was the trigger job), start at 0
+        if completed_index != -1:
+            next_index = completed_index + 1
+        else:
+            next_index = 0
+
+        next_job = None
+        if next_index < len(continuous_jobs):
+            next_job = continuous_jobs[next_index]
 
         if not next_job:
             print("Reached the end of the chain. Chain completed.")
