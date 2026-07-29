@@ -68,6 +68,7 @@ export default function App() {
   const [showEditJobModal, setShowEditJobModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadedFilename, setUploadedFilename] = useState('');
+  const [scripts, setScripts] = useState([]);
   
   const [newJob, setNewJob] = useState({
     name: '',
@@ -97,6 +98,7 @@ export default function App() {
     fetchPostgresConfig();
     fetchJobs();
     fetchPendingSyncs();
+    fetchScripts();
   }, []);
 
   // Polling for Job status, stats and logs
@@ -214,6 +216,19 @@ export default function App() {
       setJobs(data);
     } catch (err) {
       console.error('Error fetching jobs:', err);
+    }
+  };
+
+  const fetchScripts = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/scripts`);
+      const data = await res.json();
+      setScripts(data || []);
+      if (data && data.length > 0) {
+        setNewJob(prev => prev.script_filename ? prev : { ...prev, script_filename: data[0] });
+      }
+    } catch (err) {
+      console.error('Error fetching scripts:', err);
     }
   };
 
@@ -529,6 +544,7 @@ export default function App() {
       if (res.ok) {
         showFeedback('success', `Script ${data.filename} uploaded! You can now map it to a job.`);
         setUploadedFilename(data.filename);
+        fetchScripts();
         setNewJob(prev => ({ ...prev, script_filename: data.filename }));
         setShowUploadModal(false);
         setShowAddJobModal(true);
@@ -954,15 +970,13 @@ export default function App() {
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
-                        {job.script_filename !== 'shopee.py' && job.script_filename !== 'tokopedia.py' && (
-                          <button
-                            onClick={() => handleDeleteJob(job.id)}
-                            className="p-2 hover:bg-slate-800 rounded-lg text-rose-400 hover:text-rose-300 transition"
-                            title="Delete Job"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
+                        <button
+                          onClick={() => handleDeleteJob(job.id)}
+                          className="p-2 hover:bg-slate-800 rounded-lg text-rose-400 hover:text-rose-300 transition"
+                          title="Delete Job"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
 
@@ -1514,15 +1528,21 @@ export default function App() {
 
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs text-slate-400 font-semibold">Script Python Filename:</label>
-                <input
-                  type="text"
+                <select
                   required
                   value={newJob.script_filename}
                   onChange={(e) => setNewJob({...newJob, script_filename: e.target.value})}
-                  placeholder="e.g. custom_scraper.py"
-                  className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
-                />
-                <p className="text-[10px] text-slate-500">Ensure the file exists inside backend/scripts directory.</p>
+                  className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono cursor-pointer"
+                >
+                  {scripts.length === 0 ? (
+                    <option value="">No scripts found - please upload one first</option>
+                  ) : (
+                    scripts.map(scr => (
+                      <option key={scr} value={scr}>{scr}</option>
+                    ))
+                  )}
+                </select>
+                <p className="text-[10px] text-slate-500">Select an existing script file inside the backend/scripts directory.</p>
               </div>
 
               <div className="flex flex-col gap-1.5">

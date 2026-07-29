@@ -172,6 +172,23 @@ def test_postgres_config(payload: PostgresConfigSchema):
     success, msg = client.test_connection()
     return {"success": success, "message": msg}
 
+@app.get("/api/scripts")
+def list_script_files():
+    """Scan backend/scripts/ directory and return list of python filenames."""
+    scripts_dir = os.path.join(os.path.dirname(__file__), "scripts")
+    if not os.path.exists(scripts_dir):
+        return []
+    
+    files = []
+    try:
+        for f in os.listdir(scripts_dir):
+            if f.endswith(".py") and os.path.isfile(os.path.join(scripts_dir, f)):
+                files.append(f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    return sorted(files)
+
 # --- Scraper Jobs API ---
 
 @app.get("/api/jobs")
