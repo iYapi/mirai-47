@@ -25,6 +25,11 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Cron Scraping Manager Dashboard API")
 
+from strawberry.fastapi import GraphQLRouter
+from graphql_schema import schema
+graphql_app = GraphQLRouter(schema)
+app.include_router(graphql_app, prefix="/api/graphql")
+
 # Setup CORS to allow React Frontend
 app.add_middleware(
     CORSMiddleware,
