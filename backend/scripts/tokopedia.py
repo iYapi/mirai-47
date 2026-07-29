@@ -167,25 +167,23 @@ def scrape_tokopedia(base_url: str, max_pages: int, run_headless: bool) -> list[
         driver = uc.Chrome(options=options, user_data_dir=abs_profile_path)
         
     try:
-        for page_idx in range(1, max_pages + 1):
-            url = get_tokopedia_page_url(base_url, page_idx)
-            print(f"\n[Iterasi {page_idx}/{max_pages}] Membuka halaman: {url}")
-            
-            try:
-                driver.get(url)
-            except Exception as e:
-                print(f"Gagal memuat halaman utama: {e}")
-                break
+        print(f"\nMembuka halaman pencarian Tokopedia: {base_url}")
+        try:
+            driver.get(base_url)
+        except Exception as e:
+            print(f"Gagal memuat halaman utama: {e}")
+            return results
 
-            try:
-                WebDriverWait(driver, 15).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-testid='divSRPContentProducts']"))
-                )
-            except Exception:
-                print("Kontainer produk tidak ditemukan. Mengakhiri pencarian.")
-                break
+        try:
+            WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-testid='divSRPContentProducts']"))
+            )
+        except Exception:
+            print("Kontainer produk tidak ditemukan. Mengakhiri pencarian.")
+            return results
 
-            print("Memproses pemuatan dan scrolling produk...")
+        for loop_idx in range(1, max_pages + 1):
+            print(f"\n[Iterasi Halaman {loop_idx}/{max_pages}] Memproses scroll dan scrape...")
             scroll_to_bottom(driver, PRODUCT_CARD_SELECTOR, NAME_SELECTOR)
 
             # Ambil semua data produk menggunakan execute_script agar jauh lebih cepat & aman
@@ -302,7 +300,7 @@ def scrape_tokopedia(base_url: str, max_pages: int, run_headless: bool) -> list[
                         "store_location": store_location,
                         "store_type": store_type,
                         "source": "tokopedia",
-                        "page": page_idx,
+                        "page": loop_idx,
                         "scraped_at": datetime.now().isoformat(),
                     })
                     new_cards_count += 1
@@ -310,10 +308,38 @@ def scrape_tokopedia(base_url: str, max_pages: int, run_headless: bool) -> list[
                     print(f"Gagal parsing satu kartu produk: {e}")
                     continue
 
-            print(f"Berhasil memproses {new_cards_count} produk baru pada segmen ini. (Total: {len(results)})")
-            if new_cards_count == 0:
-                print("Tidak ada produk baru ditemukan. Berhenti.")
+            print(f"Berhasil memproses {new_cards_count} produk baru pada halaman ini. (Total: {len(results)})")
+            
+            # If we've reached the last page, we stop
+            if loop_idx >= max_pages:
                 break
+                
+            # Scroll down to make "Muat Lebih Banyak" button visible
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(1.5)
+
+            # Try to find and click the "Muat Lebih Banyak" button
+            btn_clicked = False
+            try:
+                btn = WebDriverWait(driver, 6).until(
+                    EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Muat Lebih Banyak')] | //button//*[contains(text(), 'Muat Lebih Banyak')]"))
+                )
+                print("Menemukan tombol 'Muat Lebih Banyak'. Melakukan klik...")
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
+                time.sleep(1.0)
+                btn.click()
+                
+                delay = random.uniform(3.0, 6.0)
+                print(f"Klik berhasil. Menunggu {delay:.2f} detik agar produk baru dimuat...")
+                time.sleep(delay)
+                btn_clicked = True
+            except Exception as e:
+                print(f"Tombol 'Muat Lebih Banyak' tidak ditemukan atau tidak dapat diklik (mungkin sudah akhir halaman): {e}")
+
+            # Fallback scroll wheel if button not found or click failed
+            if not btn_clicked:
+                driver.execute_script("window.scrollBy(0, 600);")
+                time.sleep(1.5)
                 
     except Exception as e:
         print(f"Error scraping Tokopedia: {e}")
