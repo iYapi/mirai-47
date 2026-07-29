@@ -232,16 +232,33 @@ def scrape_tokopedia(base_url: str, max_pages: int, run_headless: bool) -> list[
 
                     store_name = None
                     store_location = None
-                    spans = card.query_selector_all("span[class*='flip']")
-                    if len(spans) >= 2:
-                        store_name = spans[0].inner_text().strip()
-                        store_location = spans[1].inner_text().strip()
-                    elif len(spans) == 1:
-                        store_name = spans[0].inner_text().strip()
-
-                    store_el = card.query_selector("span[class*='si3CN']")
-                    if store_el:
-                        store_name = store_el.inner_text().strip()
+                    
+                    # 1. Try to find shop name and location via test-ids (most reliable Tokopedia attributes)
+                    shop_link_el = card.query_selector("a[data-testid='shopLink'], a[href*='/tokopedia.com/']")
+                    if shop_link_el:
+                        store_name = shop_link_el.inner_text().strip()
+                    
+                    shop_loc_el = card.query_selector("span[data-testid='spnSRPProdTabShopLoc'], span[data-testid='spnSRPProdLoc']")
+                    if shop_loc_el:
+                        store_location = shop_loc_el.inner_text().strip()
+                        
+                    # 2. Try class patterns if test-ids are empty
+                    if not store_name or not store_location:
+                        spans = card.query_selector_all("span[class*='flip']")
+                        if len(spans) >= 2:
+                            if not store_name:
+                                store_name = spans[0].inner_text().strip()
+                            if not store_location:
+                                store_location = spans[1].inner_text().strip()
+                        elif len(spans) == 1:
+                            if not store_name:
+                                store_name = spans[0].inner_text().strip()
+                                
+                    # 3. Additional fallback for class si3CN
+                    if not store_name:
+                        store_el = card.query_selector("span[class*='si3CN']")
+                        if store_el:
+                            store_name = store_el.inner_text().strip()
 
                     store_type = "Regular Merchant"
                     if badge_el:
