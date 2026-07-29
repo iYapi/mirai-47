@@ -6,6 +6,7 @@ from typing import Optional
 from datetime import datetime
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -72,15 +73,16 @@ class ScraperJobUpdate(BaseModel):
 # Seed Database on Startup
 @app.on_event("startup")
 def startup_event():
+    # Check and add new columns to SQLite scraper_jobs if they don't exist
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE scraper_jobs ADD COLUMN continuous BOOLEAN DEFAULT 0;"))
+        print("Successfully added 'continuous' column to scraper_jobs table.")
+    except Exception as e:
+        print(f"Migration note (continuous column might already exist): {e}")
+
     db = SessionLocal()
     try:
-        # Check and add new columns to SQLite scraper_jobs if they don't exist
-        try:
-            db.execute("ALTER TABLE scraper_jobs ADD COLUMN continuous BOOLEAN DEFAULT 0;")
-            db.commit()
-            print("Successfully added 'continuous' column to scraper_jobs table.")
-        except Exception:
-            pass
 
         # 1. Seed Postgres Config (Singleton row ID=1)
         config = db.query(PostgresConfig).filter(PostgresConfig.id == 1).first()
