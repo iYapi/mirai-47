@@ -26,6 +26,7 @@ class ScraperJob(Base):
     max_pages = Column(Integer, default=3)
     schedule_time = Column(String, nullable=True)  # HH:MM format (e.g. "01:00")
     enabled = Column(Boolean, default=False)
+    continuous = Column(Boolean, default=False, nullable=False)
     run_headless = Column(Boolean, default=True)  # True = Hidden, False = Open Browser (Enable Header)
     status = Column(String, default="idle")  # idle, running, failed, completed
     last_run = Column(DateTime, nullable=True)

@@ -223,7 +223,7 @@ def scrape_tokopedia(base_url: str, max_pages: int, run_headless: bool) -> list[
                 }
                 
                 const linkEl = card.querySelector('a');
-                const href = linkEl ? linkEl.getAttribute('href') : null;
+                const href = linkEl ? (linkEl.href || linkEl.getAttribute('href')) : null;
                 const name = nameEl ? nameEl.textContent.trim() : null;
                 
                 let badgeUrl = badgeEl ? badgeEl.getAttribute("src") || "" : "";
@@ -256,12 +256,12 @@ def scrape_tokopedia(base_url: str, max_pages: int, run_headless: bool) -> list[
                     clean_url_route = None
                     if product_url:
                         clean_url = product_url.split("?")[0]
+                        if not clean_url.startswith("http"):
+                            clean_url = f"https://www.tokopedia.com{clean_url}"
                         if clean_url in scraped_urls:
                             continue
                         scraped_urls.add(clean_url)
-                        
-                        parsed_uri = urlparse(clean_url)
-                        clean_url_route = parsed_uri.path
+                        clean_url_route = clean_url
                     else:
                         if product_name in scraped_urls:
                             continue

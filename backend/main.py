@@ -57,6 +57,7 @@ class ScraperJobCreate(BaseModel):
     max_pages: Optional[int] = 3
     schedule_time: Optional[str] = "01:00"
     enabled: Optional[bool] = False
+    continuous: Optional[bool] = False
     run_headless: Optional[bool] = True
 
 class ScraperJobUpdate(BaseModel):
@@ -65,6 +66,7 @@ class ScraperJobUpdate(BaseModel):
     max_pages: Optional[int] = None
     schedule_time: Optional[str] = None
     enabled: Optional[bool] = None
+    continuous: Optional[bool] = None
     run_headless: Optional[bool] = None
 
 # Seed Database on Startup
@@ -72,6 +74,14 @@ class ScraperJobUpdate(BaseModel):
 def startup_event():
     db = SessionLocal()
     try:
+        # Check and add new columns to SQLite scraper_jobs if they don't exist
+        try:
+            db.execute("ALTER TABLE scraper_jobs ADD COLUMN continuous BOOLEAN DEFAULT 0;")
+            db.commit()
+            print("Successfully added 'continuous' column to scraper_jobs table.")
+        except Exception:
+            pass
+
         # 1. Seed Postgres Config (Singleton row ID=1)
         config = db.query(PostgresConfig).filter(PostgresConfig.id == 1).first()
         if not config:
@@ -255,6 +265,7 @@ def create_job(payload: ScraperJobCreate, db: Session = Depends(get_db)):
         max_pages=payload.max_pages,
         schedule_time=payload.schedule_time,
         enabled=payload.enabled,
+        continuous=payload.continuous,
         run_headless=payload.run_headless
     )
     db.add(job)
@@ -287,6 +298,8 @@ def update_job(id: int, payload: ScraperJobUpdate, db: Session = Depends(get_db)
         job.schedule_time = payload.schedule_time
     if payload.enabled is not None:
         job.enabled = payload.enabled
+    if payload.continuous is not None:
+        job.continuous = payload.continuous
     if payload.run_headless is not None:
         job.run_headless = payload.run_headless
 
@@ -298,6 +311,8 @@ def update_job(id: int, payload: ScraperJobUpdate, db: Session = Depends(get_db)
         add_or_update_scheduler_job(job)
     else:
         remove_scheduler_job(job.id)
+        job.next_run = None
+        db.commit()
 
     return job
 
@@ -307,14 +322,120 @@ def delete_job(id: int, db: Session = Depends(get_db)):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found.")
 
-    # Prevent deleting default scripts
-    if job.script_filename in ["shopee.py", "tokopedia.py"]:
-        raise HTTPException(status_code=400, detail="Cannot delete default scraper jobs.")
-
     remove_scheduler_job(job.id)
     db.delete(job)
     db.commit()
     return {"success": True, "message": "Job deleted."}
+
+# --- Bulk Actions API ---
+
+class BulkJobCreateSchema(BaseModel):
+    script_filename: str
+    urls: list[str]
+    max_pages: Optional[int] = 3
+    schedule_time: Optional[str] = "01:00"
+    enabled: Optional[bool] = False
+    continuous: Optional[bool] = False
+    run_headless: Optional[bool] = True
+
+class BulkEnableSchema(BaseModel):
+    ids: list[int]
+    enabled: bool
+
+class BulkDeleteSchema(BaseModel):
+    ids: list[int]
+
+@app.post("/api/jobs/bulk")
+def bulk_create_jobs(payload: BulkJobCreateSchema, db: Session = Depends(get_db)):
+    # Check if script file exists
+    script_path = os.path.join(SCRIPTS_DIR, payload.script_filename)
+    if not os.path.exists(script_path):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Script file '{payload.script_filename}' does not exist. Please upload it first."
+        )
+
+    # Validate schedule format
+    if payload.schedule_time and not validate_schedule_time(payload.schedule_time):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid schedule time format. Must be HH:MM or HH:MM-HH:MM."
+        )
+
+    created_jobs = []
+    from urllib.parse import urlparse, parse_qs, unquote
+    for url in payload.urls:
+        url = url.strip()
+        if not url:
+            continue
+        
+        # Derive name from URL query parameter
+        keyword = "Scraper"
+        try:
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+            for p in ["q", "keyword", "query", "search"]:
+                if p in params:
+                    keyword = unquote(params[p][0]).replace("+", " ").strip().title()
+                    break
+        except Exception:
+            pass
+        
+        source_label = "Shopee" if "shopee" in payload.script_filename else "Tokopedia" if "tokopedia" in payload.script_filename else "Custom"
+        job_name = f"{source_label} {keyword} - {uuid.uuid4().hex[:4].upper()}"
+        
+        db_job = ScraperJob(
+            name=job_name,
+            script_filename=payload.script_filename,
+            search_url=url,
+            max_pages=payload.max_pages,
+            schedule_time=payload.schedule_time,
+            enabled=payload.enabled,
+            continuous=payload.continuous,
+            run_headless=payload.run_headless
+        )
+        db.add(db_job)
+        created_jobs.append(db_job)
+        
+    db.commit()
+    
+    # Schedule in APScheduler if enabled
+    from scheduler import add_or_update_scheduler_job
+    for job in created_jobs:
+        db.refresh(job)
+        if job.enabled:
+            add_or_update_scheduler_job(job)
+            
+    return {"success": True, "count": len(created_jobs)}
+
+@app.put("/api/jobs/bulk/enable")
+def bulk_enable_jobs(payload: BulkEnableSchema, db: Session = Depends(get_db)):
+    jobs = db.query(ScraperJob).filter(ScraperJob.id.in_(payload.ids)).all()
+    from scheduler import add_or_update_scheduler_job, remove_scheduler_job
+    for job in jobs:
+        job.enabled = payload.enabled
+        db.commit()
+        
+        if job.enabled:
+            add_or_update_scheduler_job(job)
+        else:
+            remove_scheduler_job(job.id)
+            job.next_run = None
+            db.commit()
+            
+    return {"success": True, "count": len(jobs)}
+
+@app.post("/api/jobs/bulk/delete")
+def bulk_delete_jobs(payload: BulkDeleteSchema, db: Session = Depends(get_db)):
+    jobs = db.query(ScraperJob).filter(ScraperJob.id.in_(payload.ids)).all()
+    from scheduler import remove_scheduler_job
+    deleted_count = 0
+    for job in jobs:
+        remove_scheduler_job(job.id)
+        db.delete(job)
+        deleted_count += 1
+    db.commit()
+    return {"success": True, "count": deleted_count}
 
 # --- Script Upload Endpoint ---
 

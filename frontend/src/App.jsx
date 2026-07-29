@@ -67,8 +67,10 @@ export default function App() {
   const [showAddJobModal, setShowAddJobModal] = useState(false);
   const [showEditJobModal, setShowEditJobModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showBulkAddModal, setShowBulkAddModal] = useState(false);
   const [uploadedFilename, setUploadedFilename] = useState('');
   const [scripts, setScripts] = useState([]);
+  const [selectedJobIds, setSelectedJobIds] = useState([]);
   
   const [newJob, setNewJob] = useState({
     name: '',
@@ -77,10 +79,20 @@ export default function App() {
     max_pages: 3,
     schedule_time: '01:00',
     enabled: false,
+    continuous: false,
     run_headless: true
   });
 
   const [editJobForm, setEditJobForm] = useState(null);
+  const [bulkJobForm, setBulkJobForm] = useState({
+    script_filename: '',
+    urls_input: '',
+    max_pages: 3,
+    schedule_time: '01:00',
+    enabled: false,
+    continuous: false,
+    run_headless: true
+  });
 
   const [feedbackMsg, setFeedbackMsg] = useState({ type: '', text: '' });
   const terminalEndRef = useRef(null);
@@ -478,11 +490,86 @@ export default function App() {
           max_pages: 3,
           schedule_time: '01:00',
           enabled: false,
+          continuous: false,
           run_headless: true
         });
         fetchJobs();
       } else {
         showFeedback('error', data.detail || 'Failed to create job.');
+      }
+    } catch (err) {
+      showFeedback('error', 'API failure.');
+    }
+  };
+
+  const handleBulkEnable = async (enabled) => {
+    try {
+      const res = await fetch(`${API_BASE}/jobs/bulk/enable`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedJobIds, enabled })
+      });
+      if (res.ok) {
+        showFeedback('success', `Bulk updated selection.`);
+        setSelectedJobIds([]);
+        fetchJobs();
+      } else {
+        showFeedback('error', 'Failed bulk update.');
+      }
+    } catch (err) {
+      showFeedback('error', 'API failure.');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!confirm(`Are you sure you want to delete the ${selectedJobIds.length} selected job(s)?`)) return;
+    try {
+      const res = await fetch(`${API_BASE}/jobs/bulk/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedJobIds })
+      });
+      if (res.ok) {
+        showFeedback('success', `Bulk deleted selection.`);
+        setSelectedJobIds([]);
+        fetchJobs();
+      } else {
+        showFeedback('error', 'Failed bulk delete.');
+      }
+    } catch (err) {
+      showFeedback('error', 'API failure.');
+    }
+  };
+
+  const handleBulkAddSubmit = async (e) => {
+    e.preventDefault();
+    const urls = bulkJobForm.urls_input.split('\n').map(u => u.trim()).filter(u => u.length > 0);
+    if (urls.length === 0) {
+      showFeedback('error', 'Please enter at least one URL.');
+      return;
+    }
+    
+    try {
+      const res = await fetch(`${API_BASE}/jobs/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          script_filename: bulkJobForm.script_filename,
+          urls: urls,
+          max_pages: bulkJobForm.max_pages,
+          schedule_time: bulkJobForm.continuous ? null : bulkJobForm.schedule_time,
+          enabled: bulkJobForm.enabled,
+          continuous: bulkJobForm.continuous,
+          run_headless: bulkJobForm.run_headless
+        })
+      });
+      if (res.ok) {
+        showFeedback('success', `Successfully created ${urls.length} scraping jobs in bulk!`);
+        setShowBulkAddModal(false);
+        fetchJobs();
+      } else {
+        const data = await res.json();
+        showFeedback('error', data.detail || 'Failed to bulk add jobs.');
       }
     } catch (err) {
       showFeedback('error', 'API failure.');
@@ -915,13 +1002,31 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => {
+                    setBulkJobForm({
+                      script_filename: scripts[0] || '',
+                      urls_input: '',
+                      max_pages: 3,
+                      schedule_time: '01:00',
+                      enabled: false,
+                      continuous: false,
+                      run_headless: true
+                    });
+                    setShowBulkAddModal(true);
+                  }}
+                  className="bg-slate-950 border border-slate-800 text-slate-300 hover:bg-slate-900 text-sm font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition"
+                >
+                  <Plus className="w-4 h-4" /> Bulk Add Jobs
+                </button>
+                <button
+                  onClick={() => {
                     setNewJob({
                       name: '',
-                      script_filename: '',
+                      script_filename: scripts[0] || '',
                       search_url: '',
                       max_pages: 3,
                       schedule_time: '01:00',
                       enabled: false,
+                      continuous: false,
                       run_headless: true
                     });
                     setUploadedFilename('');
@@ -933,6 +1038,56 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            {/* Bulk Action Controls */}
+            {selectedJobIds.length > 0 && (
+              <div className="w-full bg-slate-900 border border-indigo-500/30 p-4 rounded-xl flex flex-wrap items-center justify-between gap-4 mb-6 shadow-lg shadow-indigo-500/5 animate-fade-in">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedJobIds.length === jobs.length}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedJobIds(jobs.map(j => j.id));
+                      } else {
+                        setSelectedJobIds([]);
+                      }
+                    }}
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-800 bg-slate-950 cursor-pointer"
+                  />
+                  <span className="text-sm font-semibold text-slate-200">
+                    {selectedJobIds.length} job{selectedJobIds.length > 1 ? 's' : ''} selected
+                  </span>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleBulkEnable(true)}
+                    className="bg-indigo-950 border border-indigo-500/40 text-indigo-300 hover:bg-indigo-900 text-xs font-semibold px-3 py-1.5 rounded-lg transition"
+                  >
+                    Enable Selected
+                  </button>
+                  <button
+                    onClick={() => handleBulkEnable(false)}
+                    className="bg-slate-950 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-900 text-xs font-semibold px-3 py-1.5 rounded-lg transition"
+                  >
+                    Disable Selected
+                  </button>
+                  <button
+                    onClick={handleBulkDelete}
+                    className="bg-rose-950 border border-rose-500/40 text-rose-300 hover:bg-rose-900 text-xs font-semibold px-3 py-1.5 rounded-lg transition"
+                  >
+                    Delete Selected
+                  </button>
+                  <button
+                    onClick={() => setSelectedJobIds([])}
+                    className="text-xs text-slate-500 hover:text-slate-300 px-2 py-1.5 transition"
+                  >
+                    Clear Selection
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Jobs list grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -949,13 +1104,28 @@ export default function App() {
                   <div>
                     {/* Header line */}
                     <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <h3 className="text-md font-bold text-white flex items-center gap-2">
-                          {job.name}
-                          {job.script_filename === 'shopee.py' && <span className="bg-indigo-950 border border-indigo-500 text-indigo-300 text-[10px] px-2 py-0.5 rounded-full">Shopee</span>}
-                          {job.script_filename === 'tokopedia.py' && <span className="bg-purple-950 border border-purple-500 text-purple-300 text-[10px] px-2 py-0.5 rounded-full">Tokopedia</span>}
-                        </h3>
-                        <p className="text-xs text-slate-400 font-mono mt-0.5">File: {job.script_filename}</p>
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedJobIds.includes(job.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedJobIds(prev => [...prev, job.id]);
+                            } else {
+                              setSelectedJobIds(prev => prev.filter(id => id !== job.id));
+                            }
+                          }}
+                          className="w-4 h-4 mt-1.5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-800 bg-slate-950 cursor-pointer"
+                        />
+                        <div>
+                          <h3 className="text-sm font-bold text-white flex items-center gap-2 flex-wrap">
+                            {job.name}
+                            {job.script_filename === 'shopee.py' && <span className="bg-indigo-950 border border-indigo-500 text-indigo-300 text-[10px] px-2 py-0.5 rounded-full">Shopee</span>}
+                            {job.script_filename === 'tokopedia.py' && <span className="bg-purple-950 border border-purple-500 text-purple-300 text-[10px] px-2 py-0.5 rounded-full">Tokopedia</span>}
+                            {job.continuous && <span className="bg-emerald-950 border border-emerald-500 text-emerald-300 text-[10px] px-2 py-0.5 rounded-full">🔄 Continuous</span>}
+                          </h3>
+                          <p className="text-xs text-slate-400 font-mono mt-0.5">File: {job.script_filename}</p>
+                        </div>
                       </div>
                       
                       {/* Configuration controls */}
@@ -995,7 +1165,7 @@ export default function App() {
                       <div>
                         <span className="text-slate-500">Daily Schedule:</span>
                         <p className="text-slate-300 font-semibold mt-0.5">
-                          {job.schedule_time ? `${job.schedule_time}` : 'Disabled'}
+                          {job.continuous ? '🔄 Continuous Scrape' : (job.schedule_time ? `${job.schedule_time}` : 'Disabled')}
                         </p>
                       </div>
                       <div>
@@ -1610,14 +1780,56 @@ export default function App() {
                   <label className="text-xs text-slate-400 font-semibold">Schedule Daily Time (HH:MM):</label>
                   <input
                     type="text"
-                    required
-                    value={newJob.schedule_time}
+                    required={!newJob.continuous}
+                    disabled={newJob.continuous}
+                    value={newJob.continuous ? 'Continuous' : newJob.schedule_time}
                     onChange={(e) => setNewJob({...newJob, schedule_time: e.target.value})}
-                    placeholder="01:00 or 01:00-03:00"
-                    className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
+                    placeholder={newJob.continuous ? 'N/A - Continuous Mode' : 'e.g. 01:00 or 01:00-03:00'}
+                    className={`bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono ${newJob.continuous ? 'opacity-50 cursor-not-allowed' : ''}`}
                   />
                   <p className="text-[10px] text-slate-500 mt-0.5">E.g., 01:30 (fixed) or 01:00-03:00 (random daily range).</p>
                 </div>
+              </div>
+
+              <div className="flex flex-col gap-4 border-t border-slate-800 pt-4 mt-2">
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={newJob.continuous}
+                    onChange={(e) => setNewJob({...newJob, continuous: e.target.checked})}
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-800 bg-slate-950 cursor-pointer"
+                  />
+                  <div>
+                    <span className="text-sm font-semibold text-slate-200 group-hover:text-white transition">Continuous Scrape</span>
+                    <p className="text-[10px] text-slate-500">Run scraper repeatedly (10s delay between runs) instead of once daily.</p>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={newJob.run_headless}
+                    onChange={(e) => setNewJob({...newJob, run_headless: e.target.checked})}
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-800 bg-slate-950 cursor-pointer"
+                  />
+                  <div>
+                    <span className="text-sm font-semibold text-slate-200 group-hover:text-white transition">Run Headless</span>
+                    <p className="text-[10px] text-slate-500">Keep browser window hidden in background.</p>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={newJob.enabled}
+                    onChange={(e) => setNewJob({...newJob, enabled: e.target.checked})}
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-800 bg-slate-950 cursor-pointer"
+                  />
+                  <div>
+                    <span className="text-sm font-semibold text-slate-200 group-hover:text-white transition">Enable Job immediately</span>
+                    <p className="text-[10px] text-slate-500">Start the schedule daemon right after creation.</p>
+                  </div>
+                </label>
               </div>
 
               <div className="flex justify-end gap-3 mt-4 border-t border-slate-800 pt-4">
@@ -1687,14 +1899,30 @@ export default function App() {
                   <label className="text-xs text-slate-400 font-semibold">Daily Time (HH:MM):</label>
                   <input
                     type="text"
-                    required
-                    value={editJobForm.schedule_time}
+                    required={!editJobForm.continuous}
+                    disabled={editJobForm.continuous}
+                    value={editJobForm.continuous ? 'Continuous' : editJobForm.schedule_time}
                     onChange={(e) => setEditJobForm({...editJobForm, schedule_time: e.target.value})}
-                    placeholder="01:00 or 01:00-03:00"
-                    className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
+                    placeholder={editJobForm.continuous ? 'N/A - Continuous Mode' : '01:00 or 01:00-03:00'}
+                    className={`bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono ${editJobForm.continuous ? 'opacity-50 cursor-not-allowed' : ''}`}
                   />
                   <p className="text-[10px] text-slate-500 mt-0.5">E.g., 01:30 (fixed) or 01:00-03:00 (random daily range).</p>
                 </div>
+              </div>
+
+              <div className="flex flex-col gap-3 border-t border-slate-800 pt-3">
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={editJobForm.continuous}
+                    onChange={(e) => setEditJobForm({...editJobForm, continuous: e.target.checked})}
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-800 bg-slate-950 cursor-pointer"
+                  />
+                  <div>
+                    <span className="text-xs font-semibold text-slate-200 group-hover:text-white transition">Continuous Scrape</span>
+                    <p className="text-[9px] text-slate-500">Run scraper repeatedly (10s delay between runs) instead of once daily.</p>
+                  </div>
+                </label>
               </div>
 
               <div className="flex justify-end gap-3 mt-4 border-t border-slate-800 pt-4">
@@ -1760,6 +1988,136 @@ export default function App() {
                   className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition"
                 >
                   Upload File
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- BULK ADD JOBS MODAL --- */}
+      {showBulkAddModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-lg w-full flex flex-col gap-4 shadow-xl">
+            <div>
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Server className="w-5 h-5 text-indigo-400" />
+                Bulk Add Scraping Jobs
+              </h3>
+              <p className="text-xs text-slate-400">Batch-create multiple scraping jobs at once by entering a list of search target URLs.</p>
+            </div>
+
+            <form onSubmit={handleBulkAddSubmit} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-slate-400 font-semibold">Select Scraper Script:</label>
+                <select
+                  required
+                  value={bulkJobForm.script_filename}
+                  onChange={(e) => setBulkJobForm({...bulkJobForm, script_filename: e.target.value})}
+                  className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono cursor-pointer"
+                >
+                  {scripts.length === 0 ? (
+                    <option value="">No scripts found - please upload one first</option>
+                  ) : (
+                    scripts.map(scr => (
+                      <option key={scr} value={scr}>{scr}</option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-slate-400 font-semibold">Target URLs (one per line):</label>
+                <textarea
+                  required
+                  rows={4}
+                  value={bulkJobForm.urls_input}
+                  onChange={(e) => setBulkJobForm({...bulkJobForm, urls_input: e.target.value})}
+                  placeholder="https://shopee.co.id/search?keyword=rtx+3050&#10;https://shopee.co.id/search?keyword=rtx+4060"
+                  className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 min-h-[100px] font-mono text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs text-slate-400 font-semibold">Max Pages:</label>
+                  <input
+                    type="number"
+                    required
+                    value={bulkJobForm.max_pages}
+                    onChange={(e) => setBulkJobForm({...bulkJobForm, max_pages: parseInt(e.target.value) || 3})}
+                    className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs text-slate-400 font-semibold">Schedule Daily Time (HH:MM):</label>
+                  <input
+                    type="text"
+                    required={!bulkJobForm.continuous}
+                    disabled={bulkJobForm.continuous}
+                    value={bulkJobForm.continuous ? 'Continuous' : bulkJobForm.schedule_time}
+                    onChange={(e) => setBulkJobForm({...bulkJobForm, schedule_time: e.target.value})}
+                    placeholder={bulkJobForm.continuous ? 'N/A - Continuous Mode' : '01:00 or 01:00-03:00'}
+                    className={`bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono ${bulkJobForm.continuous ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 border-t border-slate-800 pt-3">
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={bulkJobForm.continuous}
+                    onChange={(e) => setBulkJobForm({...bulkJobForm, continuous: e.target.checked})}
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-800 bg-slate-950 cursor-pointer"
+                  />
+                  <div>
+                    <span className="text-xs font-semibold text-slate-200 group-hover:text-white transition">Continuous Scrape</span>
+                    <p className="text-[9px] text-slate-500">Run scraper repeatedly (10s delay between runs).</p>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={bulkJobForm.run_headless}
+                    onChange={(e) => setBulkJobForm({...bulkJobForm, run_headless: e.target.checked})}
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-800 bg-slate-950 cursor-pointer"
+                  />
+                  <div>
+                    <span className="text-xs font-semibold text-slate-200 group-hover:text-white transition">Run Headless</span>
+                    <p className="text-[9px] text-slate-500">Keep browser window hidden in background.</p>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={bulkJobForm.enabled}
+                    onChange={(e) => setBulkJobForm({...bulkJobForm, enabled: e.target.checked})}
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-800 bg-slate-950 cursor-pointer"
+                  />
+                  <div>
+                    <span className="text-xs font-semibold text-slate-200 group-hover:text-white transition">Enable Jobs immediately</span>
+                    <p className="text-[9px] text-slate-500">Start the schedule daemon right after batch creation.</p>
+                  </div>
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-3 mt-2 border-t border-slate-800 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkAddModal(false)}
+                  className="bg-slate-950 border border-slate-800 text-slate-300 hover:bg-slate-900 text-sm font-semibold px-5 py-2.5 rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition"
+                >
+                  Batch Create
                 </button>
               </div>
             </form>

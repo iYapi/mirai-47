@@ -214,7 +214,7 @@ def scrape_shopee(base_url: str, max_pages: int, run_headless: bool) -> list[dic
             js_script = """
             return Array.from(document.querySelectorAll('div[aria-label="Product card"]')).map(card => {
                 const a = card.querySelector('a');
-                const href = a ? a.getAttribute('href') : null;
+                const href = a ? (a.href || a.getAttribute('href')) : null;
                 
                 const nameEl = card.querySelector('div.line-clamp-2, div[class*="line-clamp-2"]');
                 const name = nameEl ? nameEl.textContent.trim() : null;
@@ -296,11 +296,12 @@ def scrape_shopee(base_url: str, max_pages: int, run_headless: bool) -> list[dic
                     clean_url_route = None
                     if product_url:
                         clean_url = product_url.split("?")[0]
+                        if not clean_url.startswith("http"):
+                            clean_url = f"https://shopee.co.id{clean_url}"
                         if clean_url in scraped_urls:
                             continue
                         scraped_urls.add(clean_url)
-                        from urllib.parse import urlparse
-                        clean_url_route = urlparse(clean_url).path
+                        clean_url_route = clean_url
                     else:
                         if product_name in scraped_urls:
                             continue

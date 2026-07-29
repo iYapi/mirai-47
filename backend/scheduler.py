@@ -220,9 +220,32 @@ def finish_run(db: Session, job_id: int, run_id: str, status: str, count: int, l
         job.status = "idle"
         db.commit()
         
-        # Reschedule next random time if it's a range schedule
-        if job.enabled and job.schedule_time and "-" in job.schedule_time:
-            add_or_update_scheduler_job(job)
+        if job.enabled:
+            if job.continuous:
+                next_run_time = datetime.now() + timedelta(seconds=10)
+                job_id_str = f"job_{job.id}"
+                try:
+                    if scheduler.get_job(job_id_str):
+                        scheduler.remove_job(job_id_str)
+                except Exception:
+                    pass
+                try:
+                    scheduler.add_job(
+                        run_job_wrapper,
+                        trigger='date',
+                        run_date=next_run_time,
+                        args=[job.id],
+                        id=job_id_str,
+                        replace_existing=True
+                    )
+                    job.next_run = next_run_time
+                    db.commit()
+                    print(f"Continuous job '{job.name}' rescheduled for next run at {next_run_time}")
+                except Exception as e:
+                    print(f"Failed to reschedule continuous job '{job.name}': {e}")
+            elif job.schedule_time and "-" in job.schedule_time:
+                # Reschedule next random time if it's a range schedule
+                add_or_update_scheduler_job(job)
 
     log_text = "\n".join(logs)
     job_log = JobLog(
@@ -293,7 +316,33 @@ def add_or_update_scheduler_job(job: ScraperJob):
     except Exception as e:
         print(f"Error removing job {job_id_str} from scheduler: {e}")
 
-    if not job.enabled or not job.schedule_time:
+    if not job.enabled:
+        return
+
+    if job.continuous:
+        next_run_time = datetime.now() + timedelta(seconds=5)
+        try:
+            scheduler.add_job(
+                run_job_wrapper,
+                trigger='date',
+                run_date=next_run_time,
+                args=[job.id],
+                id=job_id_str,
+                replace_existing=True
+            )
+            print(f"Scheduled continuous job '{job.name}' to start in 5 seconds.")
+            
+            db = SessionLocal()
+            db_job = db.query(ScraperJob).filter(ScraperJob.id == job.id).first()
+            if db_job:
+                db_job.next_run = next_run_time
+                db.commit()
+            db.close()
+        except Exception as e:
+            print(f"Failed to schedule continuous job '{job.name}': {e}")
+        return
+
+    if not job.schedule_time:
         return
 
     # Check if range or specific time
