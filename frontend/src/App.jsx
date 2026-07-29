@@ -256,13 +256,76 @@ export default function App() {
 
   const fetchProducts = async () => {
     const offset = (currentPage - 1) * itemsPerPage;
-    let url = `${API_BASE}/products?limit=${itemsPerPage}&offset=${offset}&sort_by=${sortBy}&sort_order=${sortOrder}`;
-    if (filterSource) url += `&source=${filterSource}`;
-    if (filterSearch) url += `&search=${encodeURIComponent(filterSearch)}`;
     
+    const query = `
+      query GetProducts(
+        $limit: Int!
+        $offset: Int!
+        $source: String
+        $search: String
+        $sortBy: String!
+        $sortOrder: String!
+      ) {
+        getProducts(
+          limit: $limit
+          offset: $offset
+          source: $source
+          search: $search
+          sortBy: $sortBy
+          sortOrder: $sortOrder
+        ) {
+          status
+          total
+          products {
+            id
+            url
+            timestamp
+            product_name
+            original_price
+            original_price_cleaned
+            discount_price
+            discount_price_cleaned
+            discount_percentage
+            rating
+            rating_cleaned
+            sold_count
+            sold_count_cleaned
+            store_name
+            store_location
+            store_type
+            source
+            page
+            scraped_at
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      limit: itemsPerPage,
+      offset: offset,
+      source: filterSource || null,
+      search: filterSearch || null,
+      sortBy: sortBy,
+      sortOrder: sortOrder
+    };
+
     try {
-      const res = await fetch(url);
-      const data = await res.json();
+      const res = await fetch(`${API_BASE}/graphql`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ query, variables })
+      });
+      const resData = await res.json();
+      
+      if (resData.errors) {
+        console.error('GraphQL errors:', resData.errors);
+        return;
+      }
+      
+      const data = resData.data.getProducts;
       setProducts(data.products || []);
       setProductsCount(data.total || 0);
     } catch (err) {
@@ -1086,7 +1149,20 @@ export default function App() {
                     <tbody className="divide-y divide-slate-850">
                       {products.map(p => (
                         <tr key={p.id} className="hover:bg-slate-900/50 text-slate-300">
-                          <td className="p-3 font-semibold text-white max-w-[200px] truncate" title={p.product_name}>{p.product_name}</td>
+                          <td className="p-3 font-semibold text-white max-w-[200px] truncate" title={p.product_name}>
+                            {p.url ? (
+                              <a 
+                                href={p.url.startsWith('http') ? p.url : `https://${p.source === 'shopee' ? 'shopee.co.id' : 'www.tokopedia.com'}${p.url}`}
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="text-indigo-400 hover:text-indigo-300 hover:underline transition"
+                              >
+                                {p.product_name}
+                              </a>
+                            ) : (
+                              p.product_name
+                            )}
+                          </td>
                           <td className="p-3 truncate max-w-[130px] font-medium text-slate-200" title={p.store_name}>{p.store_name || '-'}</td>
                           <td className="p-3">
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase ${
@@ -1125,7 +1201,20 @@ export default function App() {
                         </span>
                         <span className="text-[10px] text-slate-400 font-mono">{new Date(p.scraped_at).toLocaleDateString()}</span>
                       </div>
-                      <h4 className="font-bold text-white text-sm line-clamp-2">{p.product_name}</h4>
+                      <h4 className="font-bold text-white text-sm line-clamp-2">
+                        {p.url ? (
+                          <a 
+                            href={p.url.startsWith('http') ? p.url : `https://${p.source === 'shopee' ? 'shopee.co.id' : 'www.tokopedia.com'}${p.url}`}
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="text-indigo-400 hover:text-indigo-300 hover:underline transition"
+                          >
+                            {p.product_name}
+                          </a>
+                        ) : (
+                          p.product_name
+                        )}
+                      </h4>
                       
                       <div className="grid grid-cols-2 gap-2 text-xs border-t border-slate-800 pt-2.5 mt-1">
                         <div>
