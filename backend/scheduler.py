@@ -128,6 +128,7 @@ def execute_scraper_subprocess(job_id: int, run_id: str, is_login_only: bool = F
             universal_newlines=True,
             cwd=scripts_dir  # run from scripts directory so profiles are stored correctly
         )
+        active_runs[run_id]["process"] = process
 
         # Read output line-by-line
         while True:
@@ -242,6 +243,11 @@ def finish_run(db: Session, job_id: int, run_id: str, status: str, count: int, l
 
     if run_id in active_runs:
         active_runs[run_id]["status"] = status
+        if "process" in active_runs[run_id]:
+            try:
+                del active_runs[run_id]["process"]
+            except Exception:
+                pass
 
 def run_job_wrapper(job_id: int):
     """APScheduler job target wrapper to trigger the job in a background thread."""
@@ -302,6 +308,15 @@ def stop_chain():
     chain_active = False
     print("Execution chain interrupted and stopped.")
     
+    # Terminate active subprocesses
+    for run_id, run_info in list(active_runs.items()):
+        if run_info.get("status") == "running" and "process" in run_info:
+            try:
+                run_info["process"].terminate()
+                print(f"Terminated process for run {run_id} due to stop chain.")
+            except Exception as e:
+                print(f"Error terminating process on stop chain: {e}")
+
     db = SessionLocal()
     try:
         # Cancel any scheduled continuous jobs
@@ -317,6 +332,71 @@ def stop_chain():
         db.commit()
     except Exception as e:
         print(f"Error stopping chain jobs: {e}")
+
+def skip_current_job():
+    """
+    Skips the currently active job.
+    If a job is running, terminates its subprocess to advance the chain.
+    If a job is scheduled next, cancels it and advances immediately.
+    """
+    global chain_active
+    if not chain_active:
+        return {"success": False, "message": "No active chain to skip."}
+
+    db = SessionLocal()
+    try:
+        # Case 1: A job is currently running in a subprocess
+        running_run_id = None
+        running_job_id = None
+        for r_id, run_info in list(active_runs.items()):
+            if run_info.get("status") == "running" and "process" in run_info:
+                running_run_id = r_id
+                running_job_id = run_info.get("job_id")
+                break
+
+        if running_run_id and running_job_id:
+            # Terminate the running subprocess
+            process = active_runs[running_run_id]["process"]
+            try:
+                process.terminate()
+                print(f"Terminated running scraper job ID {running_job_id} due to skip action.")
+                return {"success": True, "message": "Skipped currently running job."}
+            except Exception as e:
+                print(f"Error terminating process: {e}")
+
+        # Case 2: No job is running, but one is scheduled next
+        continuous_jobs = db.query(ScraperJob).filter(
+            ScraperJob.continuous == True,
+            ScraperJob.enabled == True
+        ).order_by(ScraperJob.position.asc()).all()
+
+        scheduled_job = None
+        for job in continuous_jobs:
+            job_id_str = f"job_{job.id}"
+            if scheduler.get_job(job_id_str):
+                scheduled_job = job
+                break
+
+        if scheduled_job:
+            # Cancel its scheduler job
+            job_id_str = f"job_{scheduled_job.id}"
+            try:
+                scheduler.remove_job(job_id_str)
+            except Exception:
+                pass
+            scheduled_job.next_run = None
+            db.commit()
+
+            # Advance to next job in sequence
+            print(f"Cancelled scheduled job ID {scheduled_job.id} due to skip. Advancing chain...")
+            trigger_next_continuous_job(completed_job_id=scheduled_job.id)
+            return {"success": True, "message": f"Skipped scheduled job '{scheduled_job.name}'."}
+
+        return {"success": False, "message": "No running or scheduled job to skip."}
+
+    except Exception as e:
+        print(f"Error skipping current job: {e}")
+        return {"success": False, "message": str(e)}
     finally:
         db.close()
 

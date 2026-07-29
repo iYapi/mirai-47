@@ -327,11 +327,24 @@ if __name__ == "__main__":
     parser.add_argument("--url", type=str, default=SEARCH_URL, help="Target search URL")
     parser.add_argument("--pages", type=int, default=MAX_PAGES, help="Max pages to scrape")
     parser.add_argument("--headless", action="store_true", help="Run in headless mode")
+    parser.add_argument("--output", type=str, default="tokopedia_result.json", help="File output JSON")
     parser.add_argument("--login", action="store_true", help="Run headed login session only")
     args = parser.parse_args()
 
     if args.login:
         manual_login()
     else:
-        results = scrape_tokopedia(args.url, args.pages, args.headless)
-        print(json.dumps(results, indent=2))
+        print(f"Starting Tokopedia Scraper...")
+        print(f"Target URL: {args.url}")
+        print(f"Pages: {args.pages}")
+        print(f"Headless Mode: {args.headless}")
+        print(f"Output: {args.output}")
+
+        try:
+            results = scrape_tokopedia(args.url, args.pages, args.headless)
+            with open(args.output, "w", encoding="utf-8") as f:
+                json.dump(results, f, ensure_ascii=False, indent=2)
+            print(f"Scraping successfully finished. {len(results)} items saved.")
+        except Exception as e:
+            print(f"Execution Error: {e}", file=sys.stderr)
+            sys.exit(1)

@@ -250,6 +250,21 @@ export default function App() {
     }
   };
 
+  const handleSkipChain = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/chain/skip`, { method: 'POST' });
+      if (res.ok) {
+        showFeedback('success', 'Skipped current scraper job successfully.');
+        fetchJobs();
+      } else {
+        const data = await res.json();
+        showFeedback('error', data.detail || 'Failed to skip scraper job.');
+      }
+    } catch (err) {
+      showFeedback('error', 'API skip failure.');
+    }
+  };
+
   const handleReorderJob = async (index, direction) => {
     const activeJobs = jobs.filter(j => j.continuous && j.enabled);
     if (activeJobs.length <= 1) return;
@@ -1358,12 +1373,21 @@ export default function App() {
               </div>
               
               {chainActive ? (
-                <button
-                  onClick={handleStopChain}
-                  className="w-full sm:w-auto bg-rose-600 hover:bg-rose-700 text-white font-semibold px-6 py-3 rounded-xl flex items-center justify-center gap-2 transition shadow-lg shadow-rose-600/20 active:scale-95 cursor-pointer"
-                >
-                  <XCircle className="w-5 h-5" /> Interrupt Chain Execution
-                </button>
+                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                  <button
+                    onClick={handleSkipChain}
+                    className="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold px-6 py-3 rounded-xl flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+                    title="Skip current running or scheduled scraper job"
+                  >
+                    <ChevronRight className="w-5 h-5 text-indigo-400" /> Skip Current Job
+                  </button>
+                  <button
+                    onClick={handleStopChain}
+                    className="w-full sm:w-auto bg-rose-600 hover:bg-rose-700 text-white font-semibold px-6 py-3 rounded-xl flex items-center justify-center gap-2 transition shadow-lg shadow-rose-600/20 active:scale-95 cursor-pointer"
+                  >
+                    <XCircle className="w-5 h-5" /> Interrupt Chain Execution
+                  </button>
+                </div>
               ) : (
                 <button
                   onClick={async () => {

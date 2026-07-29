@@ -20,7 +20,8 @@ from scheduler import (
     trigger_job_now,
     active_runs,
     stop_chain,
-    is_chain_active
+    is_chain_active,
+    skip_current_job
 )
 
 # Initialize database tables
@@ -366,6 +367,13 @@ def get_chain_status():
 def trigger_stop_chain():
     stop_chain()
     return {"success": True, "message": "Scraper chain interrupted and stopped."}
+
+@app.post("/api/chain/skip")
+def trigger_skip_chain():
+    res = skip_current_job()
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("message"))
+    return res
 
 class ReorderJobsSchema(BaseModel):
     ids: list[int]
