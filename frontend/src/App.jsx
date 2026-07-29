@@ -1420,10 +1420,36 @@ export default function App() {
                     jobs.filter(j => !j.continuous && j.enabled).map(j => (
                       <div key={j.id} className="bg-slate-950 border border-slate-850 p-3.5 rounded-xl flex flex-col gap-2 relative">
                         <div className="flex justify-between items-start">
-                          <span className="text-xs font-bold text-slate-200 truncate pr-16">{j.name}</span>
-                          <span className="absolute top-3.5 right-3.5 bg-indigo-950 border border-indigo-500/30 text-indigo-300 text-[9px] font-mono px-2 py-0.5 rounded-md">
-                            {j.schedule_time}
-                          </span>
+                          <span className="text-xs font-bold text-slate-200 truncate pr-24">{j.name}</span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await fetch(`${API_BASE}/jobs/${j.id}/run`, { method: 'POST' });
+                                  showFeedback('success', `Initiated scraper chain starting from trigger job ${j.name}.`);
+                                  fetchJobs();
+                                } catch (err) {
+                                  showFeedback('error', 'Failed to trigger.');
+                                }
+                              }}
+                              className="p-1 rounded bg-slate-900 border border-slate-800 text-emerald-400 hover:text-emerald-300 hover:bg-slate-850 transition cursor-pointer"
+                              title="Start Execution Chain"
+                            >
+                              <Play className="w-3 h-3 fill-current" />
+                            </button>
+                            {chainActive && (
+                              <button
+                                onClick={handleStopChain}
+                                className="p-1 rounded bg-slate-900 border border-slate-800 text-rose-400 hover:text-rose-300 hover:bg-slate-850 transition cursor-pointer"
+                                title="Stop Execution Chain"
+                              >
+                                <XCircle className="w-3 h-3" />
+                              </button>
+                            )}
+                            <span className="bg-indigo-950 border border-indigo-500/30 text-indigo-300 text-[9px] font-mono px-2 py-0.5 rounded-md">
+                              {j.schedule_time}
+                            </span>
+                          </div>
                         </div>
                         <p className="text-[10px] text-slate-500 font-mono truncate">{j.search_url}</p>
                         <div className="flex justify-between items-center text-[10px] border-t border-slate-900 pt-2 mt-1">
@@ -1508,6 +1534,30 @@ export default function App() {
 
                           {/* Reorder & Action Controls */}
                           <div className="flex items-center gap-1 bg-slate-900/50 p-1 border border-slate-900 rounded-lg shrink-0">
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await fetch(`${API_BASE}/jobs/${j.id}/run`, { method: 'POST' });
+                                  showFeedback('success', `Initiated scraper chain starting from ${j.name}.`);
+                                  fetchJobs();
+                                } catch (err) {
+                                  showFeedback('error', 'Failed to trigger.');
+                                }
+                              }}
+                              className="p-1.5 rounded-md text-emerald-450 hover:bg-slate-800 hover:text-emerald-300 active:scale-90 cursor-pointer"
+                              title="Start Execution Chain from here"
+                            >
+                              <Play className="w-4 h-4 fill-current" />
+                            </button>
+                            {chainActive && (
+                              <button
+                                onClick={handleStopChain}
+                                className="p-1.5 rounded-md text-rose-400 hover:bg-slate-800 hover:text-rose-300 active:scale-90 cursor-pointer"
+                                title="Interrupt/Stop Execution Chain"
+                              >
+                                <XCircle className="w-4 h-4" />
+                              </button>
+                            )}
                             <button
                               disabled={index === 0}
                               onClick={() => handleReorderJob(index, 'up')}
