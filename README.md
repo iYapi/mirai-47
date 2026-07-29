@@ -129,7 +129,7 @@ If a scraper fails due to bot detection (captchas or missing sessions):
 2. Enter your external PostgreSQL Host, Port, Database name, Username, and Password.
 3. Click **Test Connection** to verify connection.
 4. Click **Save Config**.
-5. Once saved, the manager automatically validates and seeds the `scraped_products` table schema. Future scraping runs will auto-sync products into this database. You can inspect all items on the **Data Explorer** tab.
+5. Once saved, the manager automatically validates and seeds the `raw_scrapes` table schema. Future scraping runs will auto-sync products into this database. You can inspect all items on the **Data Explorer** tab.
 
 ---
 

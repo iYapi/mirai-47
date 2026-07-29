@@ -60,4 +60,4 @@ The **Mirai-47** is organized into three decoupled layers: a FastAPI backend ser
 ## 4. PostgreSQL Database Pipeline
 - Configured dynamically via the frontend.
 - When a scraper completes successfully, the backend reads the temporary JSON data and uses the dynamic connection driver (`postgres_client.py`) to connect to your PostgreSQL database.
-- It verifies and initializes the table `scraped_products` automatically and bulk inserts all scraped entries.
+- It verifies and initializes the table `raw_scrapes` automatically and bulk inserts all scraped entries.
