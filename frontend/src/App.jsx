@@ -271,8 +271,8 @@ export default function App() {
           offset: $offset
           source: $source
           search: $search
-          sortBy: $sortBy
-          sortOrder: $sortOrder
+          sort_by: $sortBy
+          sort_order: $sortOrder
         ) {
           status
           total
