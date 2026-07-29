@@ -32,19 +32,19 @@ class PostgresClient:
             return False, str(e)
 
     def init_db(self):
-        """Create the scraped_products table if it doesn't exist. Re-creates if old schema detected."""
+        """Create the raw_scrapes table if it doesn't exist. Re-creates if old schema detected."""
         check_query = """
         SELECT EXISTS (
             SELECT 1 
             FROM information_schema.columns 
-            WHERE table_name='scraped_products' AND column_name='raw_data'
+            WHERE table_name='raw_scrapes' AND column_name='raw_data'
         );
         """
         table_exists_query = """
         SELECT EXISTS (
             SELECT 1 
             FROM information_schema.tables 
-            WHERE table_name='scraped_products'
+            WHERE table_name='raw_scrapes'
         );
         """
         
@@ -60,21 +60,21 @@ class PostgresClient:
                     cur.execute(check_query)
                     has_raw_data = cur.fetchone()[0]
                     if not has_raw_data:
-                        print("Old scraped_products schema detected. Dropping table to recreate with JSONB support...")
-                        cur.execute("DROP TABLE IF EXISTS scraped_products CASCADE;")
+                        print("Old raw_scrapes schema detected. Dropping table to recreate with JSONB support...")
+                        cur.execute("DROP TABLE IF EXISTS raw_scrapes CASCADE;")
                         conn.commit()
                 
                 # Now create the new table structure
                 create_query = """
-                CREATE TABLE IF NOT EXISTS scraped_products (
+                CREATE TABLE IF NOT EXISTS raw_scrapes (
                     id SERIAL PRIMARY KEY,
                     url TEXT,
                     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                     raw_data JSONB NOT NULL
                 );
-                CREATE INDEX IF NOT EXISTS idx_products_url ON scraped_products(url);
-                CREATE INDEX IF NOT EXISTS idx_products_timestamp ON scraped_products(timestamp);
-                CREATE INDEX IF NOT EXISTS idx_products_source ON scraped_products ((raw_data->>'source'));
+                CREATE INDEX IF NOT EXISTS idx_products_url ON raw_scrapes(url);
+                CREATE INDEX IF NOT EXISTS idx_products_timestamp ON raw_scrapes(timestamp);
+                CREATE INDEX IF NOT EXISTS idx_products_source ON raw_scrapes ((raw_data->>'source'));
                 """
                 cur.execute(create_query)
                 conn.commit()
@@ -93,7 +93,7 @@ class PostgresClient:
             raise Exception(f"Failed to initialize PostgreSQL table: {err_msg}")
 
         query = """
-        INSERT INTO scraped_products (url, timestamp, raw_data)
+        INSERT INTO raw_scrapes (url, timestamp, raw_data)
         VALUES (%(url)s, %(timestamp)s, %(raw_data)s)
         """
         
@@ -156,7 +156,7 @@ class PostgresClient:
             raw_data->>'source' AS source,
             (raw_data->>'page')::integer AS page,
             timestamp AS scraped_at
-        FROM scraped_products 
+        FROM raw_scrapes 
         WHERE 1=1
         """
         params = {}
@@ -183,7 +183,7 @@ class PostgresClient:
         params["limit"] = limit
         params["offset"] = offset
         
-        count_query = "SELECT COUNT(*) FROM scraped_products WHERE 1=1"
+        count_query = "SELECT COUNT(*) FROM raw_scrapes WHERE 1=1"
         count_params = {}
         if source:
             count_query += " AND raw_data->>'source' = %(source)s"

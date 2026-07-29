@@ -456,7 +456,7 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
         try:
             conn = pg_client._get_connection()
             with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM scraped_products")
+                cur.execute("SELECT COUNT(*) FROM raw_scrapes")
                 total_scraped = cur.fetchone()[0]
             conn.close()
         except Exception:

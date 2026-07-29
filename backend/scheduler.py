@@ -171,7 +171,7 @@ def execute_scraper_subprocess(job_id: int, run_id: str, is_login_only: bool = F
             log("Connecting to PostgreSQL database and saving products...")
             try:
                 inserted = pg_client.insert_products(products)
-                log(f"SUCCESS: Inserted {inserted} products into PostgreSQL scraped_products table.")
+                log(f"SUCCESS: Inserted {inserted} products into PostgreSQL raw_scrapes table.")
                 finish_run(db, job_id, run_id, "completed", inserted, active_runs[run_id]["logs"])
             except Exception as pg_err:
                 log(f"WARNING: PostgreSQL save failed: {pg_err}")

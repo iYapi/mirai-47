@@ -810,7 +810,7 @@ export default function App() {
                   {stats.postgres_status === 'connected' ? (
                     <div className="text-xs text-slate-400 leading-relaxed">
                       <p className="text-emerald-400 font-semibold mb-1">✓ Connection Online</p>
-                      Your database pipeline is connected. Scrapers will automatically populate table <code className="bg-slate-950 px-1 py-0.5 rounded text-amber-300">scraped_products</code> inside host <code className="text-slate-300">{postgresConfig.host}</code>.
+                       Your database pipeline is connected. Scrapers will automatically populate table <code className="bg-slate-950 px-1 py-0.5 rounded text-amber-300">raw_scrapes</code> inside host <code className="text-slate-300">{postgresConfig.host}</code>.
                     </div>
                   ) : (
                     <div className="text-xs text-slate-400 leading-relaxed">
