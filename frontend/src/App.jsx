@@ -1149,64 +1149,102 @@ export default function App() {
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
                       <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/80">
-                        <th className="p-3.5">Product Name</th>
-                        <th className="p-3.5">Store Name</th>
-                        <th className="p-3.5">Marketplace</th>
-                        <th className="p-3.5">Price</th>
-                        <th className="p-3.5">Discount Price</th>
-                        <th className="p-3.5">Discount %</th>
-                        <th className="p-3.5">Rating</th>
-                        <th className="p-3.5">Sold</th>
-                        <th className="p-3.5">Location</th>
-                        <th className="p-3.5">Store Type</th>
-                        <th className="p-3.5">Scraped At</th>
+                        <th className="p-3.5 pl-4">Product Info</th>
+                        <th className="p-3.5">Store Details</th>
+                        <th className="p-3.5">Pricing</th>
+                        <th className="p-3.5">Performance</th>
+                        <th className="p-3.5 pr-4">Source & Campaign</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-850">
                       {products.map(p => (
-                        <tr key={p.id} className="hover:bg-slate-900/50 text-slate-300">
-                          <td className="p-3 font-semibold text-white max-w-[200px] truncate" title={p.product_name}>
-                            {p.url ? (
-                              <a 
-                                href={p.url.startsWith('http') ? p.url : `https://${p.source === 'shopee' ? 'shopee.co.id' : 'www.tokopedia.com'}${p.url}`}
-                                target="_blank" 
-                                rel="noopener noreferrer" 
-                                className="text-indigo-400 hover:text-indigo-300 hover:underline transition"
-                              >
-                                {p.product_name}
-                              </a>
-                            ) : (
-                              p.product_name
-                            )}
+                        <tr key={p.id} className="hover:bg-slate-900/40 text-slate-300">
+                          {/* 1. Product Info */}
+                          <td className="p-3 pl-4 max-w-[280px]">
+                            <div className="flex flex-col gap-0.5">
+                              {p.url ? (
+                                <a 
+                                  href={p.url.startsWith('http') ? p.url : `https://${p.source === 'shopee' ? 'shopee.co.id' : 'www.tokopedia.com'}${p.url}`}
+                                  target="_blank" 
+                                  rel="noopener noreferrer" 
+                                  className="text-indigo-400 hover:text-indigo-300 hover:underline font-bold transition line-clamp-2"
+                                  title={p.product_name}
+                                >
+                                  {p.product_name}
+                                </a>
+                              ) : (
+                                <span className="font-bold text-slate-200 line-clamp-2" title={p.product_name}>{p.product_name}</span>
+                              )}
+                              <span className="text-[10px] text-slate-500 font-mono">Scraped: {new Date(p.scraped_at).toLocaleString()}</span>
+                            </div>
                           </td>
-                          <td className="p-3 truncate max-w-[130px] font-medium text-slate-200" title={p.store_name}>{p.store_name || '-'}</td>
-                          <td className="p-3 flex flex-wrap gap-1.5 items-center">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase ${
-                              p.source === 'shopee' 
-                                ? 'bg-indigo-950 border-indigo-500 text-indigo-300' 
-                                : 'bg-purple-950 border-purple-500 text-purple-300'
-                            }`}>
-                              {p.source}
-                            </span>
-                            {p.job_name && (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-slate-700 bg-slate-900 text-slate-300">
-                                💼 {p.job_name}
+
+                          {/* 2. Store Details */}
+                          <td className="p-3 max-w-[180px]">
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-semibold text-slate-200 truncate" title={p.store_name || '-'}>
+                                🏪 {p.store_name || '-'}
                               </span>
-                            )}
-                            {p.query_keyword && (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-slate-750 bg-slate-950 text-slate-400">
-                                🔍 {p.query_keyword}
+                              <span className="text-[10px] text-slate-400 truncate">
+                                {p.store_type || 'Regular'} • {p.store_location || '-'}
                               </span>
-                            )}
+                            </div>
                           </td>
-                          <td className="p-3 font-mono">{p.original_price || 'N/A'}</td>
-                          <td className="p-3 font-mono text-emerald-400">{p.discount_price || '-'}</td>
-                          <td className="p-3 text-emerald-400">{p.discount_percentage || '-'}</td>
-                          <td className="p-3">⭐ {p.rating || 'N/A'}</td>
-                          <td className="p-3">{p.sold_count || 'N/A'}</td>
-                          <td className="p-3 truncate max-w-[120px]">{p.store_location || 'N/A'}</td>
-                          <td className="p-3">{p.store_type || 'Regular'}</td>
-                          <td className="p-3 text-slate-400 font-mono">{new Date(p.scraped_at).toLocaleString()}</td>
+
+                          {/* 3. Pricing */}
+                          <td className="p-3">
+                            <div className="flex flex-col gap-0.5 font-mono">
+                              {p.discount_price ? (
+                                <>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-emerald-400 font-bold text-sm">{p.discount_price}</span>
+                                    {p.discount_percentage && (
+                                      <span className="px-1 py-0.5 text-[9px] font-bold bg-rose-950/60 border border-rose-500/30 text-rose-300 rounded">
+                                        {p.discount_percentage}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="text-[10px] text-slate-500 line-through">{p.original_price}</span>
+                                </>
+                              ) : (
+                                <span className="text-slate-200 font-semibold text-sm">{p.original_price || 'N/A'}</span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* 4. Performance Stats */}
+                          <td className="p-3">
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-1">
+                                <span className="text-amber-400 text-xs">⭐</span>
+                                <span className="font-bold text-slate-200">{p.rating || '0.0'}</span>
+                              </div>
+                              <span className="text-[10px] text-slate-400 font-medium">🛍️ {p.sold_count || '0 sold'}</span>
+                            </div>
+                          </td>
+
+                          {/* 5. Source & Badges */}
+                          <td className="p-3 pr-4">
+                            <div className="flex flex-wrap gap-1 items-center max-w-[200px]">
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border uppercase tracking-wider ${
+                                p.source === 'shopee' 
+                                  ? 'bg-indigo-950/60 border-indigo-500/50 text-indigo-300' 
+                                  : 'bg-purple-950/60 border-purple-500/50 text-purple-300'
+                              }`}>
+                                {p.source}
+                              </span>
+                              {p.job_name && (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-semibold border border-slate-700/80 bg-slate-900 text-slate-300 truncate max-w-[100px]" title={p.job_name}>
+                                  💼 {p.job_name}
+                                </span>
+                              )}
+                              {p.query_keyword && (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-semibold border border-slate-750 bg-slate-950 text-slate-400 truncate max-w-[100px]" title={p.query_keyword}>
+                                  🔍 {p.query_keyword}
+                                </span>
+                              )}
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
