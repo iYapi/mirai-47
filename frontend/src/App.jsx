@@ -296,6 +296,7 @@ export default function App() {
             source
             page
             query_keyword
+            job_name
             scraped_at
           }
         }
@@ -1173,8 +1174,13 @@ export default function App() {
                             }`}>
                               {p.source}
                             </span>
-                            {p.query_keyword && (
+                            {p.job_name && (
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-slate-700 bg-slate-900 text-slate-300">
+                                💼 {p.job_name}
+                              </span>
+                            )}
+                            {p.query_keyword && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-slate-750 bg-slate-950 text-slate-400">
                                 🔍 {p.query_keyword}
                               </span>
                             )}
@@ -1206,8 +1212,13 @@ export default function App() {
                           }`}>
                             {p.source}
                           </span>
-                          {p.query_keyword && (
+                          {p.job_name && (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-slate-700 bg-slate-900 text-slate-300">
+                              💼 {p.job_name}
+                            </span>
+                          )}
+                          {p.query_keyword && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-slate-750 bg-slate-950 text-slate-400">
                               🔍 {p.query_keyword}
                             </span>
                           )}

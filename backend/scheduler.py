@@ -161,7 +161,7 @@ def execute_scraper_subprocess(job_id: int, run_id: str, is_login_only: bool = F
         log(f"Successfully loaded {len(products)} products from temporary results.")
 
         # Extract search query keyword from URL query params
-        from urllib.parse import urlparse, parse_qs
+        from urllib.parse import urlparse, parse_qs, unquote
         keyword = None
         if job.search_url:
             try:
@@ -170,13 +170,17 @@ def execute_scraper_subprocess(job_id: int, run_id: str, is_login_only: bool = F
                 for param_name in ["q", "keyword", "query", "search"]:
                     if param_name in query_params:
                         keyword = query_params[param_name][0]
+                        # Decode URL characters (like %20) and replace '+' with space
+                        keyword = unquote(keyword).replace('+', ' ').strip()
                         break
             except Exception:
                 pass
-        if keyword:
-            for p in products:
-                if isinstance(p, dict):
+
+        for p in products:
+            if isinstance(p, dict):
+                if keyword:
                     p["query_keyword"] = keyword
+                p["job_name"] = job.name
 
         # Insert to Postgres
         pg_client = get_postgres_client(db)

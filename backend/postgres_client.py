@@ -156,6 +156,7 @@ class PostgresClient:
             raw_data->>'source' AS source,
             (raw_data->>'page')::integer AS page,
             raw_data->>'query_keyword' AS query_keyword,
+            raw_data->>'job_name' AS job_name,
             timestamp AS scraped_at
         FROM raw_scrapes 
         WHERE 1=1
