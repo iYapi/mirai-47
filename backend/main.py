@@ -375,6 +375,38 @@ def trigger_skip_chain():
         raise HTTPException(status_code=400, detail=res.get("message"))
     return res
 
+@app.post("/api/chain/skip-delay")
+def trigger_skip_delay(db: Session = Depends(get_db)):
+    from scheduler import scheduler, run_job_wrapper
+    # Find the next scheduled continuous job
+    continuous_jobs = db.query(ScraperJob).filter(
+        ScraperJob.continuous == True,
+        ScraperJob.enabled == True
+    ).all()
+    
+    scheduled_job = None
+    for job in continuous_jobs:
+        job_id_str = f"job_{job.id}"
+        if scheduler.get_job(job_id_str):
+            scheduled_job = job
+            break
+            
+    if not scheduled_job:
+        raise HTTPException(status_code=400, detail="No scheduled job in delay queue to skip.")
+        
+    # Cancel the scheduled date trigger
+    job_id_str = f"job_{scheduled_job.id}"
+    try:
+        scheduler.remove_job(job_id_str)
+    except Exception:
+        pass
+    scheduled_job.next_run = None
+    db.commit()
+    
+    # Run it immediately (sets chain_active = True internally)
+    run_job_wrapper(scheduled_job.id)
+    return {"success": True, "message": f"Skipped delay. Starting '{scheduled_job.name}' immediately."}
+
 class ReorderJobsSchema(BaseModel):
     ids: list[int]
 

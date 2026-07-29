@@ -87,6 +87,8 @@ export default function App() {
 
   const [editJobForm, setEditJobForm] = useState(null);
   const [chainActive, setChainActive] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const [countdownJobName, setCountdownJobName] = useState('');
   const [bulkJobForm, setBulkJobForm] = useState({
     script_filename: '',
     urls_input: '',
@@ -126,6 +128,27 @@ export default function App() {
 
     return () => clearInterval(statusInterval);
   }, []);
+
+  // Countdown timer for next scheduled delay run
+  useEffect(() => {
+    // Find the next scheduled continuous job
+    const activeJobs = jobs.filter(j => j.continuous && j.enabled && j.next_run);
+    const nextJ = activeJobs.find(j => new Date(j.next_run) > new Date());
+    
+    if (nextJ && chainActive) {
+      setCountdownJobName(nextJ.name);
+      const updateCountdown = () => {
+        const diff = Math.max(0, Math.floor((new Date(nextJ.next_run) - new Date()) / 1000));
+        setSecondsLeft(diff);
+      };
+      updateCountdown();
+      const interval = setInterval(updateCountdown, 1000);
+      return () => clearInterval(interval);
+    } else {
+      setSecondsLeft(0);
+      setCountdownJobName('');
+    }
+  }, [jobs, chainActive]);
 
   // Polling for active running logs
   useEffect(() => {
@@ -262,6 +285,21 @@ export default function App() {
       }
     } catch (err) {
       showFeedback('error', 'API skip failure.');
+    }
+  };
+
+  const handleSkipDelay = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/chain/skip-delay`, { method: 'POST' });
+      if (res.ok) {
+        showFeedback('success', 'Skipped delay. Starting next scraper immediately.');
+        fetchJobs();
+      } else {
+        const data = await res.json();
+        showFeedback('error', data.detail || 'Failed to skip delay.');
+      }
+    } catch (err) {
+      showFeedback('error', 'API skip delay failure.');
     }
   };
 
@@ -1366,7 +1404,9 @@ export default function App() {
                   </h3>
                   <p className="text-xs text-slate-400 mt-1 max-w-xl">
                     {chainActive 
-                      ? 'The scraper sequence is active. Jobs are running one-by-one sequentially in the order defined below, with a random 0-3 minute human-like delay between each step.'
+                      ? secondsLeft > 0 
+                        ? `⏰ Next scraper "${countdownJobName}" is scheduled to begin in ${Math.floor(secondsLeft / 60)}m ${secondsLeft % 60}s.`
+                        : 'The scraper sequence is active. Jobs are running one-by-one sequentially in the order defined below, with a random 0-3 minute human-like delay between each step.'
                       : 'The execution chain is currently paused. When triggered (either automatically by the daily schedule trigger or manually by clicking "Run Now"), the sequence will run all continuous jobs in order all the way to the end.'}
                   </p>
                 </div>
@@ -1374,6 +1414,15 @@ export default function App() {
               
               {chainActive ? (
                 <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                  {secondsLeft > 0 && (
+                    <button
+                      onClick={handleSkipDelay}
+                      className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white font-bold px-6 py-3 rounded-xl flex items-center justify-center gap-2 transition shadow-lg shadow-amber-600/20 active:scale-95 cursor-pointer"
+                      title="Skip the delay and execute the scraper immediately"
+                    >
+                      ⚡ Skip Delay
+                    </button>
+                  )}
                   <button
                     onClick={handleSkipChain}
                     className="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold px-6 py-3 rounded-xl flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
@@ -1550,7 +1599,13 @@ export default function App() {
                               <p className="text-[10px] text-slate-500 truncate font-mono">{j.search_url}</p>
                               {isNext && (
                                 <p className="text-[9px] text-indigo-400 mt-0.5">
-                                  Running at: <strong>{new Date(j.next_run).toLocaleTimeString()}</strong>
+                                  {secondsLeft > 0 && countdownJobName === j.name ? (
+                                    <span className="text-amber-400 font-semibold animate-pulse">
+                                      ⏰ Starting in: {Math.floor(secondsLeft / 60)}m {secondsLeft % 60}s
+                                    </span>
+                                  ) : (
+                                    <>Running at: <strong>{new Date(j.next_run).toLocaleTimeString()}</strong></>
+                                  )}
                                 </p>
                               )}
                             </div>
@@ -1569,7 +1624,7 @@ export default function App() {
                                 }
                               }}
                               className="p-1.5 rounded-md text-emerald-450 hover:bg-slate-800 hover:text-emerald-300 active:scale-90 cursor-pointer"
-                              title="Start Execution Chain from here"
+                              title={isNext ? "Skip Delay and Run Now" : "Start Execution Chain from here"}
                             >
                               <Play className="w-4 h-4 fill-current" />
                             </button>
