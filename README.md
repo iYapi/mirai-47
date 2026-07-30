@@ -1,11 +1,11 @@
 # Mirai-47
 
-A premium, responsive scraping manager dashboard built to run natively on Linux Zorin OS PC (or any desktop system). It schedules, triggers, logs, and manages custom python scraping scripts (including Chromium Selenium and Playwright), automatically pipelines results into an external PostgreSQL database, and provides a sleek live terminal monitor.
+A premium, responsive scraping manager dashboard built to run natively on Linux PC (or any desktop system). It schedules, triggers, logs, and manages custom python scraping scripts (including Chromium Selenium and Playwright), automatically pipelines results into an external PostgreSQL database, and provides a sleek live terminal monitor.
 
 ## Key Features
 - **Dynamic Script Uploader**: Upload or write new python scripts directly from the panel. Scripts are executed as isolated subprocesses with real-time log capturing.
 - **Auto-Sync Pipeline**: Automatically saves scraper output (JSON arrays) into your configured external PostgreSQL database.
-- **Enable Header Flag**: Run scrapers in "headed" mode (showing browser windows) directly on your Zorin OS desktop to monitor actions or handle captchas.
+- **Enable Header Flag**: Run scrapers in "headed" mode (showing browser windows) directly on your Linux desktop to monitor actions or handle captchas.
 - **Login Session Setup**: Open Chrome/Chromium headed with profile session persistence to manually authenticate on Shopee or Tokopedia.
 - **Mobile Responsive**: Fully responsive layout optimized for desktop and Android devices.
 
@@ -40,12 +40,12 @@ A premium, responsive scraping manager dashboard built to run natively on Linux 
 
 ---
 
-## 🚀 Running Natively on Zorin OS Desktop (Recommended)
+## 🚀 Running Natively on Linux Desktop (Recommended)
 
 Running the panel natively is the best way to utilize the **Headed Browser Mode (Enable Header)** and **Login Setup** features because it allows the scraper's Chrome/Chromium browser window to pop up directly on your desktop screen.
 
 ### Step 1: Backend Setup
-Ensure you have Python 3.10+ and Google Chrome installed on your Zorin OS PC.
+Ensure you have Python 3.10+ and Google Chrome installed on your Linux PC.
 ```bash
 # Navigate to backend and install packages
 cd backend
@@ -117,7 +117,7 @@ You can add any custom python scraping script directly through the panel. To mak
 If a scraper fails due to bot detection (captchas or missing sessions):
 1. Navigate to the **Manage Scripts** tab on the dashboard.
 2. Click **Login Setup** for the respective scraper (Shopee or Tokopedia).
-3. A headed Chrome/Chromium window will open on your Zorin OS screen.
+3. A headed Chrome/Chromium window will open on your screen.
 4. Log in to your account manually and complete any OTP or slide captchas.
 5. Once logged in and on the homepage, return to your terminal running the backend python process, and press **[ENTER]**.
 6. The browser will close, saving cookies to the profile directories (`backend/scripts/shopee_profile_uc/` or `backend/scripts/tokopedia_profile/`) for future scheduled runs.

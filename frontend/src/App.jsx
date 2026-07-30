@@ -1060,7 +1060,7 @@ export default function App() {
                 <div>
                   <h2 className="text-xl font-bold text-white mb-2">Automate Shopee & Tokopedia Scrapes</h2>
                   <p className="text-slate-400 text-sm leading-relaxed">
-                    This dynamic scraping engine lets you trigger and schedule scrapers natively on your Linux Zorin OS desktop. 
+                    This dynamic scraping engine lets you trigger and schedule scrapers natively on your Linux desktop. 
                     Running natively lets the scraper launch local headed Chromium browser windows to bypass anti-bot locks or let you login manually. 
                     Scraped data automatically pipelines to your hosted PostgreSQL database.
                   </p>
@@ -2648,7 +2648,7 @@ export default function App() {
       {/* Footer */}
       <footer className="border-t border-slate-800 py-6 bg-slate-950/80 text-center text-xs text-slate-500 mt-auto">
         <div className="max-w-7xl mx-auto px-4">
-          <p>© 2026 Mirai-47. Designed for native desktop automation on Linux Zorin OS PC.</p>
+          <p>© 2026 Mirai-47. Designed for native desktop automation on Linux PC.</p>
         </div>
       </footer>
     </div>

@@ -27,7 +27,7 @@ def get_chrome_major_version() -> int | None:
             output = subprocess.check_output([
                 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "--version"
             ]).decode("utf-8")
-        else:  # Linux / Zorin OS
+        else:  # Linux
             try:
                 output = subprocess.check_output(["google-chrome", "--version"]).decode("utf-8")
             except Exception:
