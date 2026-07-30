@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import Chart from 'chart.js/auto';
 import {
   Server,
   Play,
@@ -20,7 +21,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
-  ChevronDown
+  ChevronDown,
+  TrendingUp
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8000/api';
@@ -89,6 +91,9 @@ export default function App() {
   const [chainActive, setChainActive] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [countdownJobName, setCountdownJobName] = useState('');
+  const [priceHistoryProduct, setPriceHistoryProduct] = useState(null);
+  const [priceHistoryData, setPriceHistoryData] = useState([]);
+  const [priceHistoryLoading, setPriceHistoryLoading] = useState(false);
   const [bulkJobForm, setBulkJobForm] = useState({
     script_filename: '',
     urls_input: '',
@@ -270,6 +275,27 @@ export default function App() {
       }
     } catch (err) {
       showFeedback('error', 'API failure.');
+    }
+  };
+
+  const handleViewPriceHistory = async (product) => {
+    setPriceHistoryProduct(product);
+    setPriceHistoryLoading(true);
+    setPriceHistoryData([]);
+    try {
+      const urlParam = encodeURIComponent(product.url || '');
+      const nameParam = encodeURIComponent(product.product_name || '');
+      const res = await fetch(`${API_BASE}/products/price-history?url=${urlParam}&product_name=${nameParam}`);
+      if (res.ok) {
+        const data = await res.json();
+        setPriceHistoryData(data);
+      } else {
+        showFeedback('error', 'Failed to retrieve price history.');
+      }
+    } catch (err) {
+      showFeedback('error', 'Failed to connect to API.');
+    } finally {
+      setPriceHistoryLoading(false);
     }
   };
 
@@ -1756,7 +1782,8 @@ export default function App() {
                         <th className="p-3.5">Store Details</th>
                         <th className="p-3.5">Pricing</th>
                         <th className="p-3.5">Performance</th>
-                        <th className="p-3.5 pr-4">Source & Campaign</th>
+                        <th className="p-3.5">Source & Campaign</th>
+                        <th className="p-3.5 pr-4 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-850">
@@ -1827,7 +1854,7 @@ export default function App() {
                           </td>
 
                           {/* 5. Source & Badges */}
-                          <td className="p-3 pr-4">
+                          <td className="p-3">
                             <div className="flex flex-wrap gap-1 items-center max-w-[200px]">
                               <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border uppercase tracking-wider ${
                                 p.source === 'shopee' 
@@ -1847,6 +1874,17 @@ export default function App() {
                                 </span>
                               )}
                             </div>
+                          </td>
+
+                          {/* 6. Actions */}
+                          <td className="p-3 pr-4 text-right">
+                            <button
+                              onClick={() => handleViewPriceHistory(p)}
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-2.5 py-1.5 rounded-lg text-[10px] flex items-center gap-1 transition ml-auto cursor-pointer"
+                              title="View item price history and trends"
+                            >
+                              <TrendingUp className="w-3.5 h-3.5" /> Price History
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -1925,6 +1963,13 @@ export default function App() {
                           <span className="text-slate-300 text-xs truncate block">{p.store_location || 'N/A'}</span>
                         </div>
                       </div>
+                      
+                      <button
+                        onClick={() => handleViewPriceHistory(p)}
+                        className="w-full mt-2 bg-slate-900 hover:bg-slate-850 text-slate-200 border border-slate-850 font-semibold py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                      >
+                        <TrendingUp className="w-3.5 h-3.5 text-indigo-400" /> View Price History
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -2558,12 +2603,343 @@ export default function App() {
         </div>
       )}
 
+      {/* Price History Modal */}
+      {priceHistoryProduct && (
+        <PriceHistoryModal
+          product={priceHistoryProduct}
+          priceHistoryData={priceHistoryData}
+          loading={priceHistoryLoading}
+          onClose={() => setPriceHistoryProduct(null)}
+        />
+      )}
+
       {/* Footer */}
       <footer className="border-t border-slate-800 py-6 bg-slate-950/80 text-center text-xs text-slate-500 mt-auto">
         <div className="max-w-7xl mx-auto px-4">
           <p>© 2026 Mirai-47. Designed for native desktop automation on Linux Zorin OS PC.</p>
         </div>
       </footer>
+    </div>
+  );
+}
+
+function PriceHistoryModal({ product, priceHistoryData, loading, onClose }) {
+  const chartRef = useRef(null);
+  const chartInstance = useRef(null);
+
+  useEffect(() => {
+    // Destroy previous chart if any
+    if (chartInstance.current) {
+      chartInstance.current.destroy();
+      chartInstance.current = null;
+    }
+
+    if (!loading && priceHistoryData && priceHistoryData.length > 0 && chartRef.current) {
+      const ctx = chartRef.current.getContext('2d');
+
+      // Sort chronological
+      const sortedData = [...priceHistoryData].sort(
+        (a, b) => new Date(a.scraped_at) - new Date(b.scraped_at)
+      );
+
+      const labels = sortedData.map(d => {
+        const dt = new Date(d.scraped_at);
+        return dt.toLocaleDateString('id-ID', { month: 'short', day: 'numeric' }) + ' ' + 
+               dt.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+      });
+
+      const originalPrices = sortedData.map(d => d.original_price_cleaned || null);
+      const discountPrices = sortedData.map(d => d.discount_price_cleaned || null);
+      const hasDiscount = discountPrices.some(p => p !== null);
+
+      const datasets = [];
+
+      if (hasDiscount) {
+        datasets.push({
+          label: 'Active/Discount Price (IDR)',
+          data: discountPrices.map((p, idx) => p || originalPrices[idx]),
+          borderColor: '#10b981', // Emerald 500
+          backgroundColor: 'rgba(16, 185, 129, 0.1)',
+          tension: 0.35,
+          fill: true,
+          pointBackgroundColor: '#10b981',
+          pointBorderColor: '#0f172a',
+          pointHoverRadius: 7,
+          pointHoverBackgroundColor: '#10b981',
+          pointHoverBorderColor: '#0f172a',
+          pointRadius: 4
+        });
+        datasets.push({
+          label: 'Original Price (IDR)',
+          data: originalPrices,
+          borderColor: 'rgba(148, 163, 184, 0.5)', // Slate 400
+          borderDash: [5, 5],
+          backgroundColor: 'transparent',
+          tension: 0.35,
+          fill: false,
+          pointBackgroundColor: '#64748b',
+          pointBorderColor: '#0f172a',
+          pointHoverRadius: 5,
+          pointRadius: 3
+        });
+      } else {
+        const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+        gradient.addColorStop(0, 'rgba(99, 102, 241, 0.35)');
+        gradient.addColorStop(1, 'rgba(99, 102, 241, 0.02)');
+
+        datasets.push({
+          label: 'Price (IDR)',
+          data: originalPrices,
+          borderColor: '#6366f1', // Indigo 500
+          backgroundColor: gradient,
+          tension: 0.35,
+          fill: true,
+          pointBackgroundColor: '#6366f1',
+          pointBorderColor: '#0f172a',
+          pointHoverRadius: 7,
+          pointHoverBackgroundColor: '#6366f1',
+          pointHoverBorderColor: '#0f172a',
+          pointRadius: 4
+        });
+      }
+
+      chartInstance.current = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: true,
+              position: 'top',
+              labels: {
+                color: '#94a3b8',
+                font: {
+                  family: 'Inter, system-ui, sans-serif',
+                  size: 11,
+                  weight: '600'
+                }
+              }
+            },
+            tooltip: {
+              backgroundColor: '#0f172a',
+              borderColor: '#334155',
+              borderWidth: 1,
+              titleColor: '#f1f5f9',
+              bodyColor: '#f8fafc',
+              padding: 10,
+              cornerRadius: 8,
+              callbacks: {
+                label: function (context) {
+                  let label = context.dataset.label || '';
+                  if (label) {
+                    label += ': ';
+                  }
+                  if (context.parsed.y !== null) {
+                    label += new Intl.NumberFormat('id-ID', {
+                      style: 'currency',
+                      currency: 'IDR',
+                      maximumFractionDigits: 0
+                    }).format(context.parsed.y);
+                  }
+                  return label;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: {
+                color: 'rgba(51, 65, 85, 0.15)'
+              },
+              ticks: {
+                color: '#64748b',
+                font: {
+                  family: 'Inter, system-ui, sans-serif',
+                  size: 9
+                },
+                maxRotation: 45,
+                minRotation: 0
+              }
+            },
+            y: {
+              grid: {
+                color: 'rgba(51, 65, 85, 0.15)'
+              },
+              ticks: {
+                color: '#64748b',
+                font: {
+                  family: 'Inter, system-ui, sans-serif',
+                  size: 10
+                },
+                callback: function (value) {
+                  return new Intl.NumberFormat('id-ID', {
+                    style: 'currency',
+                    currency: 'IDR',
+                    maximumFractionDigits: 0,
+                    notation: 'compact'
+                  }).format(value);
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    return () => {
+      if (chartInstance.current) {
+        chartInstance.current.destroy();
+        chartInstance.current = null;
+      }
+    };
+  }, [priceHistoryData, loading]);
+
+  if (!product) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/75 z-55 flex items-center justify-center p-4 backdrop-blur-md transition-all duration-300">
+      <div className="bg-slate-900 border border-slate-800 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in duration-200">
+        
+        {/* Header */}
+        <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+          <div className="flex flex-col gap-1 min-w-0 pr-4">
+            <span className={`inline-self-start px-2 py-0.5 rounded-full text-[9px] font-bold border uppercase tracking-wider ${
+              product.source === 'shopee' 
+                ? 'bg-indigo-950/65 border-indigo-500/50 text-indigo-300' 
+                : 'bg-purple-950/65 border-purple-500/50 text-purple-300'
+            }`}>
+              {product.source}
+            </span>
+            <h3 className="text-md font-bold text-white truncate mt-1" title={product.product_name}>
+              📈 Price History: {product.product_name}
+            </h3>
+            <p className="text-[10px] text-slate-400 font-mono mt-0.5 truncate">
+              Store: {product.store_name || '-'} • {product.store_location || '-'}
+            </p>
+          </div>
+          
+          <button 
+            onClick={onClose} 
+            className="text-slate-400 hover:text-white p-2 hover:bg-slate-800 rounded-xl transition cursor-pointer"
+          >
+            <XCircle className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="p-6 flex-1 overflow-y-auto flex flex-col gap-6 bg-slate-900/40">
+          
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-24 gap-3">
+              <RefreshCw className="w-8 h-8 text-indigo-500 animate-spin" />
+              <span className="text-xs text-slate-400 font-medium">Loading historical price records...</span>
+            </div>
+          ) : priceHistoryData.length === 0 ? (
+            <div className="text-center py-20 text-slate-500 text-sm">
+              <TrendingUp className="w-12 h-12 mx-auto text-slate-700 mb-3" />
+              No price history data points recorded for this item yet.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-6">
+              
+              {/* Stats Overview Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="bg-slate-950/60 border border-slate-800/80 p-3.5 rounded-xl">
+                  <span className="text-[10px] text-slate-500 block font-semibold">CURRENT PRICE</span>
+                  <span className="text-base font-mono font-bold text-emerald-400 mt-1 block">
+                    {product.discount_price || product.original_price || 'N/A'}
+                  </span>
+                </div>
+                <div className="bg-slate-950/60 border border-slate-800/80 p-3.5 rounded-xl">
+                  <span className="text-[10px] text-slate-500 block font-semibold">MINIMUM PRICE</span>
+                  <span className="text-base font-mono font-bold text-slate-200 mt-1 block">
+                    {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(
+                      Math.min(...priceHistoryData.map(d => d.discount_price_cleaned || d.original_price_cleaned || 0))
+                    )}
+                  </span>
+                </div>
+                <div className="bg-slate-950/60 border border-slate-800/80 p-3.5 rounded-xl">
+                  <span className="text-[10px] text-slate-500 block font-semibold">MAXIMUM PRICE</span>
+                  <span className="text-base font-mono font-bold text-slate-200 mt-1 block">
+                    {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(
+                      Math.max(...priceHistoryData.map(d => d.discount_price_cleaned || d.original_price_cleaned || 0))
+                    )}
+                  </span>
+                </div>
+                <div className="bg-slate-950/60 border border-slate-800/80 p-3.5 rounded-xl">
+                  <span className="text-[10px] text-slate-500 block font-semibold">TOTAL SCRAPES</span>
+                  <span className="text-base font-mono font-bold text-indigo-400 mt-1 block">
+                    {priceHistoryData.length} records
+                  </span>
+                </div>
+              </div>
+
+              {/* Chart Canvas Container */}
+              <div className="bg-slate-950/80 border border-slate-850 p-4 rounded-2xl h-80 relative shadow-inner">
+                <canvas ref={chartRef}></canvas>
+              </div>
+
+              {/* Price Log Table */}
+              <div className="flex flex-col gap-2.5">
+                <h4 className="text-xs font-bold text-slate-300">Historical Price Logs</h4>
+                <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950/40">
+                  <div className="max-h-48 overflow-y-auto">
+                    <table className="w-full text-left border-collapse text-[11px]">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400 bg-slate-950 font-semibold sticky top-0">
+                          <th className="p-2.5 pl-4">Date & Time</th>
+                          <th className="p-2.5">Original Price</th>
+                          <th className="p-2.5">Active / Discount Price</th>
+                          <th className="p-2.5 pr-4 text-right">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-850">
+                        {[...priceHistoryData].reverse().map((log, idx) => (
+                          <tr key={idx} className="hover:bg-slate-900/40 text-slate-300 font-mono">
+                            <td className="p-2 pl-4 text-slate-400">
+                              {new Date(log.scraped_at).toLocaleString('id-ID')}
+                            </td>
+                            <td className="p-2">{log.original_price || '-'}</td>
+                            <td className="p-2 text-emerald-450 font-semibold">{log.discount_price || '-'}</td>
+                            <td className="p-2 pr-4 text-right">
+                              {log.discount_price ? (
+                                <span className="bg-emerald-950/65 border border-emerald-500/20 text-emerald-400 text-[8px] font-bold px-1.5 py-0.5 rounded">
+                                  PROMO
+                                </span>
+                              ) : (
+                                <span className="bg-slate-900 border border-slate-800 text-slate-500 text-[8px] px-1.5 py-0.5 rounded">
+                                  NORMAL
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+        
+        {/* Footer */}
+        <div className="p-4 border-t border-slate-800 bg-slate-950/60 flex justify-end">
+          <button 
+            onClick={onClose}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition cursor-pointer active:scale-95"
+          >
+            Close Viewer
+          </button>
+        </div>
+
+      </div>
     </div>
   );
 }

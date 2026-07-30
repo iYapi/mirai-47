@@ -651,6 +651,16 @@ def get_scraped_products(
     )
     return {"products": products, "total": total, "status": "connected"}
 
+@app.get("/api/products/price-history")
+def get_product_price_history(
+    url: Optional[str] = None,
+    product_name: Optional[str] = None,
+    pg_client: Optional[PostgresClient] = Depends(get_active_pg_client)
+):
+    if not pg_client:
+        return []
+    return pg_client.get_price_history(url=url, product_name=product_name)
+
 # --- Dashboard Stats API ---
 
 @app.get("/api/stats")

@@ -211,3 +211,41 @@ class PostgresClient:
             print(f"Error fetching products from Postgres: {e}")
             
         return results, total
+
+    def get_price_history(self, url=None, product_name=None):
+        """Fetch historical price list for a single product matching URL or name."""
+        if not url and not product_name:
+            return []
+            
+        query = """
+        SELECT 
+            timestamp AS scraped_at,
+            raw_data->>'original_price' AS original_price,
+            (raw_data->>'original_price_cleaned')::bigint AS original_price_cleaned,
+            raw_data->>'discount_price' AS discount_price,
+            (raw_data->>'discount_price_cleaned')::bigint AS discount_price_cleaned,
+            raw_data->>'product_name' AS product_name
+        FROM raw_scrapes
+        WHERE 1=1
+        """
+        params = {}
+        if url:
+            query += " AND url = %(url)s"
+            params["url"] = url
+        elif product_name:
+            query += " AND raw_data->>'product_name' = %(product_name)s"
+            params["product_name"] = product_name
+            
+        query += " ORDER BY timestamp ASC"
+        
+        results = []
+        try:
+            conn = self._get_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(query, params)
+                results = list(cur.fetchall())
+            conn.close()
+        except Exception as e:
+            print(f"Error fetching product price history: {e}")
+            
+        return results
