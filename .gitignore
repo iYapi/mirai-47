@@ -19,8 +19,10 @@ dist-ssr
 # Scraping Profiles & Logs
 backend/scripts/shopee_profile_uc/
 backend/scripts/tokopedia_profile/
+backend/scripts/tokopedia_profile_uc/
 shopee_profile_uc/
 tokopedia_profile/
+tokopedia_profile_uc/
 Shopee/
 Tokopedia/
 
