@@ -134,49 +134,89 @@ class PostgresClient:
         return inserted_count
 
     def get_products(self, limit=100, offset=0, source=None, search=None, sort_by="scraped_at", sort_order="desc"):
-        """Fetch products from PostgreSQL for data viewing in dashboard."""
-        query = """
-        SELECT 
-            id,
-            url,
-            timestamp,
-            raw_data->>'product_name' AS product_name,
-            raw_data->>'original_price' AS original_price,
-            (raw_data->>'original_price_cleaned')::bigint AS original_price_cleaned,
-            raw_data->>'discount_price' AS discount_price,
-            (raw_data->>'discount_price_cleaned')::bigint AS discount_price_cleaned,
-            raw_data->>'discount_percentage' AS discount_percentage,
-            raw_data->>'rating' AS rating,
-            (raw_data->>'rating_cleaned')::numeric(3,2) AS rating_cleaned,
-            raw_data->>'sold_count' AS sold_count,
-            (raw_data->>'sold_count_cleaned')::integer AS sold_count_cleaned,
-            raw_data->>'store_name' AS store_name,
-            raw_data->>'store_location' AS store_location,
-            raw_data->>'store_type' AS store_type,
-            raw_data->>'source' AS source,
-            (raw_data->>'page')::integer AS page,
-            raw_data->>'query_keyword' AS query_keyword,
-            raw_data->>'job_name' AS job_name,
-            timestamp AS scraped_at
-        FROM raw_scrapes 
-        WHERE 1=1
-        """
+        """Fetch unique products from PostgreSQL for data viewing in dashboard with price change tracking."""
         params = {}
         
+        # Build filter criteria
+        filters = []
         if source:
-            query += " AND raw_data->>'source' = %(source)s"
+            filters.append("raw_data->>'source' = %(source)s")
             params["source"] = source
-            
         if search:
-            query += " AND raw_data->>'product_name' ILIKE %(search)s"
+            filters.append("raw_data->>'product_name' ILIKE %(search)s")
             params["search"] = f"%{search}%"
             
+        filter_clause = " AND ".join(filters)
+        if filter_clause:
+            filter_clause = "AND " + filter_clause
+            
+        query = f"""
+        WITH filtered_scrapes AS (
+            SELECT * FROM raw_scrapes WHERE 1=1 {filter_clause}
+        ),
+        price_extremes AS (
+            SELECT 
+                COALESCE(url, raw_data->>'product_name') AS item_key,
+                MIN(timestamp) AS first_time,
+                MAX(timestamp) AS last_time
+            FROM filtered_scrapes
+            GROUP BY COALESCE(url, raw_data->>'product_name')
+        ),
+        first_prices AS (
+            SELECT DISTINCT ON (COALESCE(s.url, s.raw_data->>'product_name'))
+                COALESCE(s.url, s.raw_data->>'product_name') AS item_key,
+                COALESCE((s.raw_data->>'discount_price_cleaned')::bigint, (s.raw_data->>'original_price_cleaned')::bigint) AS first_price
+            FROM filtered_scrapes s
+            JOIN price_extremes e ON COALESCE(s.url, s.raw_data->>'product_name') = e.item_key AND s.timestamp = e.first_time
+        ),
+        latest_prices AS (
+            SELECT DISTINCT ON (COALESCE(s.url, s.raw_data->>'product_name'))
+                COALESCE(s.url, s.raw_data->>'product_name') AS item_key,
+                COALESCE((s.raw_data->>'discount_price_cleaned')::bigint, (s.raw_data->>'original_price_cleaned')::bigint) AS last_price,
+                s.id,
+                s.url,
+                s.timestamp,
+                s.raw_data
+            FROM filtered_scrapes s
+            JOIN price_extremes e ON COALESCE(s.url, s.raw_data->>'product_name') = e.item_key AND s.timestamp = e.last_time
+        ),
+        unique_results AS (
+            SELECT 
+                l.id,
+                l.url,
+                l.timestamp,
+                l.raw_data->>'product_name' AS product_name,
+                l.raw_data->>'original_price' AS original_price,
+                (l.raw_data->>'original_price_cleaned')::bigint AS original_price_cleaned,
+                l.raw_data->>'discount_price' AS discount_price,
+                (l.raw_data->>'discount_price_cleaned')::bigint AS discount_price_cleaned,
+                l.raw_data->>'discount_percentage' AS discount_percentage,
+                l.raw_data->>'rating' AS rating,
+                (l.raw_data->>'rating_cleaned')::numeric(3,2) AS rating_cleaned,
+                l.raw_data->>'sold_count' AS sold_count,
+                (l.raw_data->>'sold_count_cleaned')::integer AS sold_count_cleaned,
+                l.raw_data->>'store_name' AS store_name,
+                l.raw_data->>'store_location' AS store_location,
+                l.raw_data->>'store_type' AS store_type,
+                l.raw_data->>'source' AS source,
+                (l.raw_data->>'page')::integer AS page,
+                l.raw_data->>'query_keyword' AS query_keyword,
+                l.raw_data->>'job_name' AS job_name,
+                l.timestamp AS scraped_at,
+                COALESCE(l.last_price - f.first_price, 0) AS price_change
+            FROM latest_prices l
+            LEFT JOIN first_prices f ON l.item_key = f.item_key
+        )
+        SELECT * FROM unique_results
+        """
+        
         # Sorting validation
         allowed_columns = {
             "scraped_at": "timestamp",
-            "price": "(raw_data->>'original_price_cleaned')::bigint",
-            "rating": "(raw_data->>'rating_cleaned')::numeric(3,2)",
-            "sold": "(raw_data->>'sold_count_cleaned')::integer"
+            "price": "COALESCE(discount_price_cleaned, original_price_cleaned)",
+            "rating": "rating_cleaned",
+            "sold": "sold_count_cleaned",
+            "price_change": "price_change"
         }
         sort_column = allowed_columns.get(sort_by, "timestamp")
         sort_dir = "DESC" if sort_order.lower() == "desc" else "ASC"
@@ -185,15 +225,13 @@ class PostgresClient:
         params["limit"] = limit
         params["offset"] = offset
         
-        count_query = "SELECT COUNT(*) FROM raw_scrapes WHERE 1=1"
-        count_params = {}
-        if source:
-            count_query += " AND raw_data->>'source' = %(source)s"
-            count_params["source"] = source
-        if search:
-            count_query += " AND raw_data->>'product_name' ILIKE %(search)s"
-            count_params["search"] = f"%{search}%"
-            
+        # Deduplicated Count Query
+        count_query = f"""
+        SELECT COUNT(DISTINCT COALESCE(url, raw_data->>'product_name')) 
+        FROM raw_scrapes 
+        WHERE 1=1 {filter_clause}
+        """
+        
         results = []
         total = 0
         
@@ -204,7 +242,7 @@ class PostgresClient:
                 results = list(cur.fetchall())
                 
                 # Fetch count
-                cur.execute(count_query, count_params)
+                cur.execute(count_query, params)
                 total = cur.fetchone()['count']
             conn.close()
         except Exception as e:

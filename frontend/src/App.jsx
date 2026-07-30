@@ -27,6 +27,27 @@ import {
 
 const API_BASE = 'http://localhost:8000/api';
 
+const renderPriceChangeBadge = (change) => {
+  if (!change || change === 0) return null;
+  const isDrop = change < 0;
+  const absValue = Math.abs(change);
+  const formattedVal = new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    maximumFractionDigits: 0
+  }).format(absValue);
+  
+  return (
+    <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase border font-sans select-none ${
+      isDrop 
+        ? 'bg-emerald-950/60 border-emerald-500/30 text-emerald-400' 
+        : 'bg-rose-950/60 border-rose-500/30 text-rose-400'
+    }`}>
+      {isDrop ? '↓' : '↑'} {formattedVal}
+    </span>
+  );
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('overview');
   const [stats, setStats] = useState({
@@ -1741,6 +1762,7 @@ export default function App() {
                 >
                   <option value="scraped_at">Sort by Date</option>
                   <option value="price">Sort by Price</option>
+                  <option value="price_change">Sort by Price Change</option>
                   <option value="rating">Sort by Rating</option>
                   <option value="sold">Sort by Sold</option>
                 </select>
@@ -1826,18 +1848,22 @@ export default function App() {
                             <div className="flex flex-col gap-0.5 font-mono">
                               {p.discount_price ? (
                                 <>
-                                  <div className="flex items-center gap-1.5">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
                                     <span className="text-emerald-400 font-bold text-sm">{p.discount_price}</span>
                                     {p.discount_percentage && (
                                       <span className="px-1 py-0.5 text-[9px] font-bold bg-rose-950/60 border border-rose-500/30 text-rose-300 rounded">
                                         {p.discount_percentage}
                                       </span>
                                     )}
+                                    {p.price_change !== 0 && renderPriceChangeBadge(p.price_change)}
                                   </div>
                                   <span className="text-[10px] text-slate-500 line-through">{p.original_price}</span>
                                 </>
                               ) : (
-                                <span className="text-slate-200 font-semibold text-sm">{p.original_price || 'N/A'}</span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-slate-200 font-semibold text-sm">{p.original_price || 'N/A'}</span>
+                                  {p.price_change !== 0 && renderPriceChangeBadge(p.price_change)}
+                                </div>
                               )}
                             </div>
                           </td>
@@ -1942,6 +1968,12 @@ export default function App() {
                           <span className="text-slate-500 block text-[10px]">Promo:</span>
                           <span className="font-mono text-emerald-400">{p.discount_price || '-'} ({p.discount_percentage || '-'})</span>
                         </div>
+                        {p.price_change !== 0 && (
+                          <div className="col-span-2">
+                            <span className="text-slate-500 block text-[10px]">Price Change:</span>
+                            {renderPriceChangeBadge(p.price_change)}
+                          </div>
+                        )}
                         <div>
                           <span className="text-slate-500 block text-[10px]">Rating:</span>
                           <span className="text-slate-300">⭐ {p.rating || 'N/A'}</span>
