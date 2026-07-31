@@ -115,6 +115,8 @@ export default function App() {
   const [priceHistoryProduct, setPriceHistoryProduct] = useState(null);
   const [priceHistoryData, setPriceHistoryData] = useState([]);
   const [priceHistoryLoading, setPriceHistoryLoading] = useState(false);
+  const [cleanupStats, setCleanupStats] = useState(null);
+  const [cleaningInProgress, setCleaningInProgress] = useState(false);
   const [bulkJobForm, setBulkJobForm] = useState({
     script_filename: '',
     urls_input: '',
@@ -190,16 +192,50 @@ export default function App() {
     };
   }, [selectedJobLogs]);
 
-  // Load Products when tab, filters or sorting change
+  // Load Products or Storage stats when activeTab, filters or sorting change
   useEffect(() => {
     if (activeTab === 'explorer') {
       fetchProducts();
+    } else if (activeTab === 'postgres') {
+      fetchCleanupStats();
     }
   }, [activeTab, filterSource, currentPage, sortBy, sortOrder]);
 
   const showFeedback = (type, text) => {
     setFeedbackMsg({ type, text });
     setTimeout(() => setFeedbackMsg({ type: '', text: '' }), 5000);
+  };
+
+  const fetchCleanupStats = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/cleanup/status`);
+      if (res.ok) {
+        const data = await res.json();
+        setCleanupStats(data);
+      }
+    } catch (err) {
+      console.error("Failed to load storage cleanup stats", err);
+    }
+  };
+
+  const handlePerformCleanup = async () => {
+    setCleaningInProgress(true);
+    try {
+      const res = await fetch(`${API_BASE}/cleanup`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        const reclaimedMB = (data.reclaimed_bytes / (1024 * 1024)).toFixed(2);
+        showFeedback('success', `🧹 System cleaned successfully! Reclaimed ${reclaimedMB} MB of space.`);
+        fetchCleanupStats();
+        fetchStats();
+      } else {
+        showFeedback('error', 'Failed to perform cleanup.');
+      }
+    } catch (err) {
+      showFeedback('error', 'Cleanup API error.');
+    } finally {
+      setCleaningInProgress(false);
+    }
   };
 
   const fetchPendingSyncs = async () => {
@@ -919,7 +955,7 @@ export default function App() {
                 : 'text-slate-400 hover:bg-slate-800 hover:text-white'
             }`}
           >
-            <Settings className="w-4 h-4" /> Database Config
+            <Settings className="w-4 h-4" /> Settings & Storage
           </button>
 
           <button
@@ -2152,6 +2188,88 @@ export default function App() {
                 <p className="mt-2 text-slate-500">
                   We will automatically verify and execute necessary migration tables when you hit "Save Config".
                 </p>
+              </div>
+            </div>
+
+            {/* Storage Optimization Section */}
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl lg:col-span-3 flex flex-col gap-5 mt-2">
+              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 pb-4 border-b border-slate-850">
+                <div>
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                    🧹 Storage Optimization & Cache Cleaner
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Purge heavy Google Chrome runtime caches, logs, and orphaned Selenium profiles to reclaim disk space while preserving login cookies.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handlePerformCleanup}
+                  disabled={cleaningInProgress || !cleanupStats || cleanupStats.total_reclaimable_bytes === 0}
+                  className="bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition cursor-pointer flex items-center gap-2 active:scale-95 shadow-lg shadow-rose-600/10 shrink-0"
+                >
+                  {cleaningInProgress ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Cleaning Up...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Clean System Storage
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {cleanupStats ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 font-sans">
+                  {/* Card 1: Browser Cache */}
+                  <div className="bg-slate-950/50 border border-slate-850 p-4 rounded-xl flex flex-col gap-1">
+                    <span className="text-slate-500 text-[10px] uppercase font-bold tracking-wider">Browser Cache</span>
+                    <span className="text-lg font-mono font-bold text-slate-200">
+                      {(cleanupStats.browser_cache_bytes / (1024 * 1024)).toFixed(2)} MB
+                    </span>
+                    <span className="text-[10px] text-slate-450">Chrome GPU, Script & Code cache</span>
+                  </div>
+
+                  {/* Card 2: Scraping Temp Files */}
+                  <div className="bg-slate-950/50 border border-slate-850 p-4 rounded-xl flex flex-col gap-1">
+                    <span className="text-slate-500 text-[10px] uppercase font-bold tracking-wider">Scraper Temp files</span>
+                    <span className="text-lg font-mono font-bold text-slate-200">
+                      {(cleanupStats.temp_files_bytes / (1024 * 1024)).toFixed(2)} MB
+                    </span>
+                    <span className="text-[10px] text-slate-450">Temporary scraping output files & logs</span>
+                  </div>
+
+                  {/* Card 3: Orphaned Tmp Folders */}
+                  <div className="bg-slate-950/50 border border-slate-850 p-4 rounded-xl flex flex-col gap-1">
+                    <span className="text-slate-500 text-[10px] uppercase font-bold tracking-wider">Orphaned Temp Dirs</span>
+                    <span className="text-lg font-mono font-bold text-slate-200">
+                      {(cleanupStats.orphaned_scoped_bytes / (1024 * 1024)).toFixed(2)} MB
+                    </span>
+                    <span className="text-[10px] text-slate-450 font-sans text-slate-500">crashed chromedriver profiles in /tmp</span>
+                  </div>
+
+                  {/* Card 4: Total Reclaimable Space */}
+                  <div className="bg-indigo-950/30 border border-indigo-500/20 p-4 rounded-xl flex flex-col gap-1">
+                    <span className="text-indigo-400 text-[10px] uppercase font-bold tracking-wider">Total Reclaimable</span>
+                    <span className="text-lg font-mono font-bold text-indigo-300">
+                      {(cleanupStats.total_reclaimable_bytes / (1024 * 1024)).toFixed(2)} MB
+                    </span>
+                    <span className="text-[10px] text-indigo-400/70">Wasted storage safe to clear now</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center py-6 text-slate-500 text-xs">
+                  <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                  Calculating reclaimable storage size...
+                </div>
+              )}
+
+              {/* Informative Note */}
+              <div className="bg-slate-950/40 border border-slate-850 p-3.5 rounded-xl text-xs text-slate-400 leading-relaxed">
+                💡 <span className="font-semibold text-slate-350 font-sans">Cookie Protection Guard Active:</span> This cleanup routine is designed to prune only ephemeral files (like network caching, local caches, logs, and dead chromedriver profiles). Your active account session cookies inside the profiles are strictly preserved, so you will <strong>not</strong> be logged out of Shopee or Tokopedia.
               </div>
             </div>
 

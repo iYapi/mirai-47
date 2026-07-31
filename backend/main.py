@@ -754,3 +754,145 @@ def delete_pending_sync(id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"success": True, "message": "Pending sync record discarded."}
 
+# --- System Storage Status & Cache Purge API ---
+
+def get_profile_cache_candidates(scripts_dir, base_backend_dir):
+    profile_roots = [
+        os.path.join(scripts_dir, "shopee_profile_uc"),
+        os.path.join(scripts_dir, "tokopedia_profile_uc"),
+        os.path.join(base_backend_dir, "shopee_profile_uc"),
+        os.path.join(base_backend_dir, "tokopedia_profile_uc"),
+    ]
+    cache_subpaths = [
+        "Default/Cache",
+        "Default/Code Cache",
+        "Default/GPUCache",
+        "Default/Service Worker/CacheStorage",
+        "Default/Service Worker/ScriptCache",
+        "ShaderCache",
+    ]
+    candidates = []
+    for root in profile_roots:
+        if os.path.exists(root):
+            for sub in cache_subpaths:
+                sub_path = os.path.join(root, sub)
+                if os.path.exists(sub_path):
+                    candidates.append(sub_path)
+    return candidates
+
+def get_temp_files_candidates(scripts_dir, base_backend_dir):
+    import glob
+    patterns = [
+        os.path.join(scripts_dir, "results*.json"),
+        os.path.join(scripts_dir, "temp_*.json"),
+        os.path.join(scripts_dir, "tokopedia_result*.json"),
+        os.path.join(scripts_dir, "shopee_result*.json"),
+        os.path.join(base_backend_dir, "results*.json"),
+        os.path.join(base_backend_dir, "temp_*.json"),
+        os.path.join(base_backend_dir, "*.log"),
+        os.path.join(scripts_dir, "*.log"),
+    ]
+    candidates = []
+    for pat in patterns:
+        for f in glob.glob(pat):
+            if os.path.exists(f) and os.path.isfile(f):
+                candidates.append(f)
+    return candidates
+
+def get_orphaned_scoped_candidates():
+    import tempfile
+    system_tmp = tempfile.gettempdir()
+    candidates = []
+    if os.path.exists(system_tmp):
+        try:
+            for item in os.listdir(system_tmp):
+                if item.startswith("scoped_dir") or item.startswith("chrome_"):
+                    item_path = os.path.join(system_tmp, item)
+                    if os.path.isdir(item_path):
+                        candidates.append(item_path)
+        except Exception:
+            pass
+    return candidates
+
+def calculate_size_of_paths(paths_list):
+    total_size = 0
+    for p in paths_list:
+        if os.path.isdir(p):
+            for root, dirs, files in os.walk(p):
+                for f in files:
+                    fp = os.path.join(root, f)
+                    if not os.path.islink(fp):
+                        try:
+                            total_size += os.path.getsize(fp)
+                        except Exception:
+                            pass
+        elif os.path.isfile(p):
+            try:
+                total_size += os.path.getsize(p)
+            except Exception:
+                pass
+    return total_size
+
+@app.get("/api/cleanup/status")
+def get_cleanup_status():
+    base_backend_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    cache_paths = get_profile_cache_candidates(SCRIPTS_DIR, base_backend_dir)
+    temp_paths = get_temp_files_candidates(SCRIPTS_DIR, base_backend_dir)
+    scoped_paths = get_orphaned_scoped_candidates()
+    
+    cache_size = calculate_size_of_paths(cache_paths)
+    temp_size = calculate_size_of_paths(temp_paths)
+    scoped_size = calculate_size_of_paths(scoped_paths)
+    
+    # Calculate total size of profiles for metadata info
+    profile_roots = [
+        os.path.join(SCRIPTS_DIR, "shopee_profile_uc"),
+        os.path.join(SCRIPTS_DIR, "tokopedia_profile_uc"),
+        os.path.join(base_backend_dir, "shopee_profile_uc"),
+        os.path.join(base_backend_dir, "tokopedia_profile_uc"),
+    ]
+    profile_total_size = calculate_size_of_paths([r for r in profile_roots if os.path.exists(r)])
+    
+    return {
+        "browser_cache_bytes": cache_size,
+        "temp_files_bytes": temp_size,
+        "orphaned_scoped_bytes": scoped_size,
+        "total_reclaimable_bytes": cache_size + temp_size + scoped_size,
+        "profile_total_bytes": profile_total_size
+    }
+
+@app.post("/api/cleanup")
+def run_cleanup():
+    base_backend_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    cache_paths = get_profile_cache_candidates(SCRIPTS_DIR, base_backend_dir)
+    temp_paths = get_temp_files_candidates(SCRIPTS_DIR, base_backend_dir)
+    scoped_paths = get_orphaned_scoped_candidates()
+    
+    reclaimed_bytes = 0
+    
+    # 1. Clear directories
+    for p in cache_paths + scoped_paths:
+        try:
+            size = calculate_size_of_paths([p])
+            shutil.rmtree(p, ignore_errors=True)
+            reclaimed_bytes += size
+        except Exception as e:
+            print(f"Error removing directory {p}: {e}")
+            
+    # 2. Clear files
+    for p in temp_paths:
+        try:
+            size = os.path.getsize(p)
+            os.remove(p)
+            reclaimed_bytes += size
+        except Exception as e:
+            print(f"Error removing file {p}: {e}")
+            
+    return {
+        "success": True,
+        "reclaimed_bytes": reclaimed_bytes,
+        "message": f"Successfully cleaned up system storage."
+    }
+
